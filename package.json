@@ -1,0 +1,37 @@
+{
+  "name": "i-call-on-game",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "apps/worker"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace apps/web run dev",
+    "dev:worker": "npm --workspace apps/worker run dev",
+    "build": "npm run build:web && npm run build:worker",
+    "build:web": "npm --workspace apps/web run build",
+    "build:web:prod": "npm --workspace apps/web run build",
+    "build:worker": "npm --workspace apps/worker run build",
+    "deploy:preflight": "bash scripts/deploy-preflight.sh",
+    "deploy:cloudflare": "bash scripts/deploy-cloudflare.sh",
+    "deploy:worker": "npm --workspace apps/worker run deploy",
+    "deploy:web": "npm run build:web && cd apps/worker && npx wrangler pages deploy ../web/dist --project-name i-call-on-web --branch main --commit-dirty=true",
+    "deploy:prod": "npm run deploy:preflight && npm run deploy:worker && npm run deploy:web",
+    "typecheck": "npm run typecheck:web && npm run typecheck:worker",
+    "typecheck:web": "npm --workspace apps/web run typecheck",
+    "typecheck:worker": "npm --workspace apps/worker run typecheck",
+    "test": "npm run test:web && npm run test:worker",
+    "test:web": "npm --workspace apps/web run test",
+    "test:worker": "npm --workspace apps/worker run test",
+    "test:functional": "npm --workspace apps/web run test:functional",
+    "test:unit": "npm --workspace apps/worker run test:unit",
+    "test:integration": "npm --workspace apps/worker run test:integration",
+    "test:steps": "npm run test:unit && npm run test:functional && npm run test:integration",
+    "check": "npm run typecheck && npm run test",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}

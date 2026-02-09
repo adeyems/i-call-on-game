@@ -1,0 +1,24 @@
+name = "i-call-on-worker"
+main = "src/index.ts"
+compatibility_date = "2026-02-08"
+workers_dev = true
+
+[vars]
+APP_ORIGIN = "https://i-call-on-web.pages.dev"
+
+[env.local.vars]
+APP_ORIGIN = "http://localhost:5181"
+
+[[durable_objects.bindings]]
+name = "GAME_ROOM"
+class_name = "GameRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameRoom"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "i-call-on"
+database_id = "4ea2a3e4-56f4-49e1-904c-cc47c8996cc7"
+preview_database_id = "4ea2a3e4-56f4-49e1-904c-cc47c8996cc7"
