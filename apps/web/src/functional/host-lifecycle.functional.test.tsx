@@ -52,7 +52,9 @@ function makeState(overrides?: {
       cancelledAt: overrides?.game?.cancelledAt ?? null,
       config: {
         roundSeconds: 20,
-        endRule: "WHICHEVER_FIRST"
+        endRule: "WHICHEVER_FIRST",
+        manualEndPolicy: "HOST_OR_CALLER",
+        scoringMode: "FIXED_10"
       },
       turnOrder: overrides?.game?.turnOrder ?? [],
       currentTurnIndex: 0,
@@ -315,13 +317,20 @@ describe("functional: host lifecycle", () => {
 
       const startPayload = JSON.parse(String(fetchMock.mock.calls[3][1]?.body)) as {
         hostToken: string;
-        config: { roundSeconds: number; endRule: string };
+        config: {
+          roundSeconds: number;
+          endRule: string;
+          manualEndPolicy: string;
+          scoringMode: string;
+        };
       };
       expect(startPayload).toEqual({
         hostToken: "host-token-1",
         config: {
           roundSeconds: 20,
-          endRule: "WHICHEVER_FIRST"
+          endRule: "TIMER",
+          manualEndPolicy: "HOST_OR_CALLER",
+          scoringMode: "FIXED_10"
         }
       });
 

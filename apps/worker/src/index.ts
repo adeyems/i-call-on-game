@@ -374,6 +374,8 @@ export function createWorkerHandler() {
             config?: {
               roundSeconds?: number;
               endRule?: "TIMER" | "FIRST_SUBMISSION" | "WHICHEVER_FIRST";
+              manualEndPolicy?: "HOST_OR_CALLER" | "CALLER_ONLY" | "CALLER_OR_TIMER" | "NONE";
+              scoringMode?: "FIXED_10" | "SHARED_10";
             };
           };
           const upstream = await proxyJsonRequest(stub, "POST", "/start", payload);

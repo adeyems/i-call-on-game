@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Orbitron:wght@500;700;800&display=swap");
 
 :root {
   --background-dark: #05080a;
@@ -21,7 +21,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "Poppins", ui-sans-serif, sans-serif;
+  font-family: "DM Sans", ui-sans-serif, sans-serif;
   color: var(--ink);
   background-color: var(--background-dark);
   background-image:
@@ -114,7 +114,7 @@ h1,
 h2,
 h3 {
   margin-top: 0;
-  font-family: "Manrope", "Poppins", sans-serif;
+  font-family: "Orbitron", "DM Sans", sans-serif;
   color: #fff;
 }
 
@@ -304,27 +304,94 @@ code {
 
 .game-layout {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 1.05rem;
   align-items: start;
 }
 
 .score-sidebar {
   position: sticky;
   top: 1rem;
-  border: 1px solid rgba(70, 236, 19, 0.16);
-  border-radius: 16px;
-  padding: 0.9rem;
-  background: linear-gradient(150deg, rgba(12, 26, 12, 0.8), rgba(8, 14, 11, 0.88));
+  border: 1px solid rgba(70, 236, 19, 0.25);
+  border-radius: 18px;
+  padding: 0.95rem;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(70, 236, 19, 0.16), transparent 40%),
+    linear-gradient(160deg, rgba(15, 32, 18, 0.86), rgba(9, 15, 12, 0.9));
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-timer-card {
+  border: 1px solid rgba(70, 236, 19, 0.34);
+  border-radius: 14px;
+  padding: 0.72rem 0.74rem;
+  margin-bottom: 0.78rem;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(70, 236, 19, 0.18), transparent 58%),
+    linear-gradient(160deg, rgba(12, 28, 15, 0.92), rgba(7, 12, 10, 0.92));
+}
+
+.sidebar-timer-label {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9eb4a8;
+}
+
+.sidebar-timer-value {
+  margin: 0.28rem 0 0.16rem;
+  font-family: "Orbitron", "DM Sans", sans-serif;
+  font-size: clamp(1.65rem, 3vw, 2.2rem);
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: #d8ffe0;
+  text-shadow: 0 0 16px rgba(70, 236, 19, 0.24);
+}
+
+.sidebar-timer-value-danger {
+  color: #ff8e8e;
+  text-shadow: 0 0 16px rgba(255, 98, 98, 0.3);
+}
+
+.sidebar-timer-hint {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #9db1a7;
+}
+
+.score-sidebar-head {
+  margin-bottom: 0.75rem;
+}
+
+.score-sidebar-head h3 {
+  margin-bottom: 0.45rem;
+}
+
+.score-sidebar-meta {
+  margin: 0;
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.score-sidebar-meta span {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 0.2rem 0.48rem;
+  font-size: 0.75rem;
+  color: #d9e6df;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .score-player {
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
-  padding: 0.55rem 0.65rem;
-  background: rgba(255, 255, 255, 0.03);
+  padding: 0.58rem 0.65rem;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
   margin-bottom: 0.5rem;
   transition: transform 150ms ease, box-shadow 150ms ease;
+  position: relative;
 }
 
 .score-player:hover {
@@ -344,6 +411,22 @@ code {
   font-weight: 700;
 }
 
+.score-player-name {
+  letter-spacing: 0.01em;
+}
+
+.score-player-rank {
+  position: absolute;
+  right: 0.55rem;
+  top: -0.48rem;
+  border: 1px solid rgba(70, 236, 19, 0.45);
+  border-radius: 999px;
+  padding: 0.08rem 0.38rem;
+  font-size: 0.68rem;
+  background: rgba(10, 24, 12, 0.9);
+  color: #b6f9a3;
+}
+
 .score-player-head strong {
   color: var(--primary);
 }
@@ -356,6 +439,85 @@ code {
 
 .game-main {
   min-width: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.game-primary {
+  border: 1px solid rgba(70, 236, 19, 0.2);
+  border-radius: 16px;
+  padding: 1rem;
+  background: linear-gradient(150deg, rgba(12, 26, 13, 0.86), rgba(10, 18, 14, 0.9));
+}
+
+.game-details {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  padding: 0.95rem 1rem;
+  background: linear-gradient(150deg, rgba(11, 19, 14, 0.8), rgba(9, 14, 12, 0.72));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.game-details-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.7rem;
+}
+
+.game-details-head h3 {
+  margin: 0;
+}
+
+.status-chip {
+  border-radius: 999px;
+  padding: 0.25rem 0.58rem;
+  border: 1px solid rgba(70, 236, 19, 0.3);
+  background: rgba(70, 236, 19, 0.1);
+  color: #b4faa0;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.game-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.52rem;
+}
+
+.detail-item {
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 12px;
+  padding: 0.52rem 0.58rem;
+  background: rgba(255, 255, 255, 0.02);
+  min-width: 0;
+}
+
+.detail-item-wide {
+  grid-column: 1 / -1;
+}
+
+.detail-label {
+  display: block;
+  color: #98aca2;
+  font-size: 0.71rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.detail-value {
+  display: block;
+  margin-top: 0.18rem;
+  color: #edf6f1;
+  font-size: 0.91rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.details-action-btn {
+  margin-top: 0.72rem;
+  width: 100%;
 }
 
 .letters-row {
@@ -390,6 +552,10 @@ code {
 .answers-form {
   display: grid;
   gap: 0.82rem;
+  border: 1px solid rgba(70, 236, 19, 0.16);
+  border-radius: 14px;
+  padding: 0.85rem;
+  background: rgba(4, 11, 8, 0.62);
 }
 
 .answers-grid {
@@ -427,13 +593,16 @@ code {
 
 .results-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   margin-top: 0.65rem;
+  overflow: hidden;
+  border-radius: 14px;
 }
 
 .results-table th,
 .results-table td {
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 0.5rem;
   text-align: left;
   font-size: 0.9rem;
@@ -446,6 +615,7 @@ code {
 
 .results-table td {
   color: #e8f0eb;
+  background: rgba(255, 255, 255, 0.015);
 }
 
 .results-table td:last-child,
@@ -455,38 +625,47 @@ code {
 
 .mark-cell {
   display: grid;
-  gap: 0.34rem;
+  gap: 0.38rem;
 }
 
 .answer-value {
-  font-size: 0.83rem;
-  color: #dae4de;
+  font-size: 0.82rem;
+  color: #e6f0ea;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 10px;
+  padding: 0.36rem 0.45rem;
+  background: rgba(255, 255, 255, 0.03);
+  min-height: 2rem;
+  display: inline-flex;
+  align-items: center;
 }
 
 .mark-actions {
   display: flex;
-  gap: 0.24rem;
+  gap: 0.32rem;
 }
 
 .mark-btn {
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
   color: #e3ece6;
-  padding: 0.2rem 0.45rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
+  width: 1.95rem;
+  height: 1.95rem;
+  padding: 0;
+  border-radius: 10px;
+  font-size: 0.9rem;
   line-height: 1;
   box-shadow: none;
 }
 
 .mark-btn-active.mark-btn-correct {
-  background: rgba(70, 236, 19, 0.2);
+  background: linear-gradient(140deg, rgba(70, 236, 19, 0.28), rgba(70, 236, 19, 0.18));
   border-color: rgba(70, 236, 19, 0.65);
   color: #b9ff9f;
 }
 
 .mark-btn-active.mark-btn-wrong {
-  background: rgba(255, 114, 114, 0.18);
+  background: linear-gradient(140deg, rgba(255, 114, 114, 0.24), rgba(255, 114, 114, 0.14));
   border-color: rgba(255, 114, 114, 0.56);
   color: #ffd3d3;
 }
@@ -498,7 +677,14 @@ code {
 
 .mark-score {
   font-size: 0.74rem;
-  color: #b1c2b9;
+  color: #c5d3cc;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+  display: inline-flex;
+  justify-content: center;
+  width: fit-content;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .publish-btn {
@@ -535,7 +721,7 @@ code {
 
 .letter-modal-letter {
   margin: 0.2rem 0;
-  font-family: "Manrope", "Poppins", sans-serif;
+  font-family: "Orbitron", "DM Sans", sans-serif;
   font-size: clamp(6rem, 24vw, 12rem);
   font-weight: 800;
   line-height: 1;
@@ -546,7 +732,7 @@ code {
 
 .letter-modal-count {
   margin: 0;
-  font-family: "Manrope", "Poppins", sans-serif;
+  font-family: "Orbitron", "DM Sans", sans-serif;
   font-size: clamp(2rem, 10vw, 3.35rem);
   font-weight: 700;
   color: #f5faf7;
@@ -657,6 +843,10 @@ code {
 
   .score-sidebar {
     position: static;
+  }
+
+  .game-details-grid {
+    grid-template-columns: 1fr;
   }
 
   .letters-row {

@@ -173,7 +173,9 @@ function makeInProgressState(overrides?: StateOverrides) {
       startedAt: "2026-02-08T00:00:10.000Z",
       config: {
         roundSeconds: 12,
-        endRule: "TIMER"
+        endRule: "TIMER",
+        manualEndPolicy: "HOST_OR_CALLER",
+        scoringMode: "FIXED_10"
       },
       turnOrder: ["host", "p-ada"],
       currentTurnIndex: 0,
@@ -322,32 +324,53 @@ describe("functional: phase 2 round flow", () => {
         })
       });
 
-      const fetchMock = vi
-        .spyOn(globalThis, "fetch")
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify(makeInProgressState()), {
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+
+        if (url.endsWith("/api/rooms/ROOM55") && method === "GET") {
+          return new Response(JSON.stringify(makeInProgressState()), {
             status: 200,
             headers: {
               "Content-Type": "application/json"
             }
-          })
-        )
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify(callStateLocked), {
+          });
+        }
+
+        if (url.endsWith("/api/rooms/ROOM55/call") && method === "POST") {
+          return new Response(JSON.stringify(callStateLocked), {
             status: 200,
             headers: {
               "Content-Type": "application/json"
             }
-          })
-        )
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify(submitState), {
+          });
+        }
+
+        if (url.endsWith("/api/rooms/ROOM55/draft") && method === "POST") {
+          return new Response(JSON.stringify({ ok: true }), {
             status: 200,
             headers: {
               "Content-Type": "application/json"
             }
-          })
-        );
+          });
+        }
+
+        if (url.endsWith("/api/rooms/ROOM55/submit") && method === "POST") {
+          return new Response(JSON.stringify(submitState), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          });
+        }
+
+        return new Response(JSON.stringify({ error: "room not found" }), {
+          status: 404,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        });
+      });
 
       render(<App />);
 
@@ -388,10 +411,10 @@ describe("functional: phase 2 round flow", () => {
         expect(screen.getByText(/Your submission has been recorded/i)).toBeInTheDocument();
       });
 
-      expect(fetchMock).toHaveBeenCalledTimes(3);
-      expect(String(fetchMock.mock.calls[0][0])).toContain("/api/rooms/ROOM55");
-      expect(String(fetchMock.mock.calls[1][0])).toContain("/api/rooms/ROOM55/call");
-      expect(String(fetchMock.mock.calls[2][0])).toContain("/api/rooms/ROOM55/submit");
+      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/api/rooms/ROOM55"))).toBe(true);
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/api/rooms/ROOM55/call"))).toBe(true);
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/api/rooms/ROOM55/submit"))).toBe(true);
 
       act(() => {
         MockWebSocket.instances[0].emit({
@@ -414,6 +437,115 @@ describe("functional: phase 2 round flow", () => {
       expect(playSubmissionSound).not.toHaveBeenCalled();
       expect(startRoundTimerSong).toHaveBeenCalled();
       expect(stopRoundTimerSong).toHaveBeenCalled();
+    } finally {
+      restoreSocket();
+    }
+  });
+
+  it("recovers from submit response failure when server already recorded the submission", async () => {
+    const restoreSocket = installMockWebSocket();
+
+    try {
+      const now = Date.now();
+      const roundOpenState = makeInProgressState({
+        activeRound: {
+          roundNumber: 1,
+          turnParticipantId: "host",
+          turnParticipantName: "Host",
+          calledNumber: 2,
+          activeLetter: "B",
+          startedAt: new Date(now).toISOString(),
+          countdownEndsAt: new Date(now - 1000).toISOString(),
+          endsAt: new Date(now + 12000).toISOString(),
+          submissions: []
+        }
+      });
+
+      const recoveredState = makeInProgressState({
+        activeRound: {
+          roundNumber: 1,
+          turnParticipantId: "host",
+          turnParticipantName: "Host",
+          calledNumber: 2,
+          activeLetter: "B",
+          startedAt: new Date(now).toISOString(),
+          countdownEndsAt: new Date(now - 1000).toISOString(),
+          endsAt: new Date(now + 12000).toISOString(),
+          submissions: [
+            {
+              participantId: "host",
+              participantName: "Host",
+              submittedAt: new Date(now + 4000).toISOString()
+            }
+          ]
+        }
+      });
+
+      window.history.pushState({}, "", "/game/ROOM55");
+      window.localStorage.setItem(
+        "i-call-on:session:ROOM55",
+        JSON.stringify({ participantId: "host", participantName: "Host", isHost: true, hostToken: "host-token" })
+      );
+
+      let stateReads = 0;
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+
+        if (url.endsWith("/api/rooms/ROOM55") && method === "GET") {
+          stateReads += 1;
+          const payload = stateReads === 1 ? roundOpenState : recoveredState;
+          return new Response(JSON.stringify(payload), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          });
+        }
+
+        if (url.endsWith("/api/rooms/ROOM55/submit") && method === "POST") {
+          return new Response(JSON.stringify({ error: "participant has already submitted" }), {
+            status: 409,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          });
+        }
+
+        if (url.endsWith("/api/rooms/ROOM55/draft") && method === "POST") {
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          });
+        }
+
+        return new Response(JSON.stringify({ error: "unexpected request" }), {
+          status: 500,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        });
+      });
+
+      render(<App />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/^Name$/i)).not.toBeDisabled();
+      });
+
+      const user = userEvent.setup();
+      await user.type(screen.getByLabelText(/^Name$/i), "Bola");
+      await user.click(screen.getByRole("button", { name: /Submit answers/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Your submission has been recorded/i)).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText(/Unable to submit round answers/i)).not.toBeInTheDocument();
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/api/rooms/ROOM55/submit"))).toBe(true);
+      expect(window.localStorage.getItem("i-call-on:draft:ROOM55:host:1")).toBeNull();
     } finally {
       restoreSocket();
     }
@@ -768,6 +900,72 @@ describe("functional: phase 2 round flow", () => {
 
       expect(window.location.pathname).toBe("/");
       expect(window.localStorage.getItem("i-call-on:session:ROOM55")).toBeNull();
+    } finally {
+      restoreSocket();
+    }
+  });
+
+  it("restores typed round answers after refresh from local draft storage", async () => {
+    const restoreSocket = installMockWebSocket();
+
+    try {
+      const now = Date.now();
+      const openRoundState = makeInProgressState({
+        activeRound: {
+          roundNumber: 1,
+          turnParticipantId: "host",
+          turnParticipantName: "Host",
+          calledNumber: 1,
+          activeLetter: "A",
+          startedAt: new Date(now).toISOString(),
+          countdownEndsAt: new Date(now - 1000).toISOString(),
+          endsAt: new Date(now + 15000).toISOString(),
+          submissions: []
+        }
+      });
+
+      window.history.pushState({}, "", "/game/ROOM55");
+      window.localStorage.setItem(
+        "i-call-on:session:ROOM55",
+        JSON.stringify({ participantId: "host", participantName: "Host", isHost: true, hostToken: "host-token" })
+      );
+
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(openRoundState), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(openRoundState), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          })
+        );
+
+      const firstRender = render(<App />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/^Name$/i)).not.toBeDisabled();
+      });
+
+      const user = userEvent.setup();
+      await user.type(screen.getByLabelText(/^Name$/i), "Ayo");
+
+      const draftRaw = window.localStorage.getItem("i-call-on:draft:ROOM55:host:1");
+      expect(draftRaw).not.toBeNull();
+
+      firstRender.unmount();
+      render(<App />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/^Name$/i)).toHaveValue("Ayo");
+      });
     } finally {
       restoreSocket();
     }

@@ -9,6 +9,16 @@ APP_ORIGIN = "https://i-call-on-web.pages.dev"
 [env.local.vars]
 APP_ORIGIN = "http://localhost:5181"
 
+[[env.local.durable_objects.bindings]]
+name = "GAME_ROOM"
+class_name = "GameRoom"
+
+[[env.local.d1_databases]]
+binding = "DB"
+database_name = "i-call-on"
+database_id = "4ea2a3e4-56f4-49e1-904c-cc47c8996cc7"
+preview_database_id = "4ea2a3e4-56f4-49e1-904c-cc47c8996cc7"
+
 [[durable_objects.bindings]]
 name = "GAME_ROOM"
 class_name = "GameRoom"

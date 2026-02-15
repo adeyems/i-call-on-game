@@ -15,7 +15,13 @@ import {
   type StoredRoomState
 } from "../room";
 
-function createStartedState(endRule: "TIMER" | "FIRST_SUBMISSION" | "WHICHEVER_FIRST" = "WHICHEVER_FIRST"): StoredRoomState {
+function createStartedState(
+  config?: {
+    endRule?: "TIMER" | "FIRST_SUBMISSION" | "WHICHEVER_FIRST";
+    manualEndPolicy?: "HOST_OR_CALLER" | "CALLER_ONLY" | "CALLER_OR_TIMER" | "NONE";
+    scoringMode?: "FIXED_10" | "SHARED_10";
+  }
+): StoredRoomState {
   const base = initializeRoomState(
     {
       roomCode: "ROUND1",
@@ -46,7 +52,9 @@ function createStartedState(endRule: "TIMER" | "FIRST_SUBMISSION" | "WHICHEVER_F
     "host-token",
     {
       roundSeconds: 12,
-      endRule
+      endRule: config?.endRule ?? "WHICHEVER_FIRST",
+      manualEndPolicy: config?.manualEndPolicy,
+      scoringMode: config?.scoringMode
     },
     "2026-02-08T00:00:10.000Z"
   );
@@ -122,7 +130,9 @@ function createStateAtFairRoundLimit(): StoredRoomState {
       finishedAt: null,
       config: {
         roundSeconds: 12,
-        endRule: "TIMER"
+        endRule: "TIMER",
+        manualEndPolicy: "HOST_OR_CALLER",
+        scoringMode: "FIXED_10"
       },
       turnOrder,
       currentTurnIndex: 0,
@@ -179,7 +189,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("starts a round when the active player calls a number", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const call = callNumberForTurn(started, "host", 1, "2026-02-08T00:00:11.000Z");
 
     expect(call.ok).toBe(true);
@@ -193,7 +203,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("rejects call attempts from a non-active participant", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const call = callNumberForTurn(started, "p-ada", 4, "2026-02-08T00:00:11.000Z");
 
     expect(call.ok).toBe(false);
@@ -204,7 +214,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("blocks submission during the pre-round countdown", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 2, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -232,7 +242,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("ends immediately on first submission and force-submits missing players", () => {
-    const started = createStartedState("FIRST_SUBMISSION");
+    const started = createStartedState({ endRule: "FIRST_SUBMISSION" });
     const called = callNumberForTurn(started, "host", 2, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -264,7 +274,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("keeps round open after a submission when rule is TIMER", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 5, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -293,7 +303,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("prevents duplicate submissions from the same participant", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 7, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -339,7 +349,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("keeps typed draft answers when host force-ends the round", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 11, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -393,7 +403,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("allows host to end game and lock room", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const finished = endGame(started, "host-token", "2026-02-08T00:00:40.000Z");
     expect(finished.ok).toBe(true);
     if (!finished.ok) {
@@ -405,7 +415,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("does not allow new round while previous round is pending publication", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 1, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -427,7 +437,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("discards round result and clears reviewed scores", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 1, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -470,7 +480,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("ends timer-driven rounds and advances to the next turn", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 9, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -489,7 +499,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("allows host to manually end round and force-submit all", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 12, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -506,8 +516,40 @@ describe("unit: round flow logic", () => {
     }
   });
 
+  it("blocks non-caller participants from ending early when manual policy is caller-only", () => {
+    const started = createStartedState({ endRule: "TIMER", manualEndPolicy: "CALLER_ONLY" });
+    const called = callNumberForTurn(started, "host", 12, "2026-02-08T00:00:11.000Z");
+    expect(called.ok).toBe(true);
+    if (!called.ok) {
+      return;
+    }
+
+    const denied = endRoundManually(called.nextState, "p-ada", "2026-02-08T00:00:18.000Z");
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) {
+      expect(denied.status).toBe(403);
+      expect(denied.error).toBe("only the current caller can end the round");
+    }
+  });
+
+  it("blocks all manual round ending when policy is none (timer only)", () => {
+    const started = createStartedState({ endRule: "TIMER", manualEndPolicy: "NONE" });
+    const called = callNumberForTurn(started, "host", 12, "2026-02-08T00:00:11.000Z");
+    expect(called.ok).toBe(true);
+    if (!called.ok) {
+      return;
+    }
+
+    const denied = endRoundManually(called.nextState, "host", "2026-02-08T00:00:18.000Z");
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) {
+      expect(denied.status).toBe(403);
+      expect(denied.error).toBe("manual round end is disabled for this room");
+    }
+  });
+
   it("prevents reusing an already played letter", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 1, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -546,7 +588,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("allows host to score a submission with 10/0 per field", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 3, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -588,8 +630,117 @@ describe("unit: round flow logic", () => {
     }
   });
 
+  it("applies shared-10 scoring across matching answers when configured", () => {
+    const started = createStartedState({ endRule: "TIMER", scoringMode: "SHARED_10" });
+    const called = callNumberForTurn(started, "host", 1, "2026-02-08T00:00:11.000Z");
+    expect(called.ok).toBe(true);
+    if (!called.ok) {
+      return;
+    }
+
+    const hostSubmitted = submitRoundAnswers(
+      called.nextState,
+      "host",
+      {
+        name: "Ada",
+        animal: "Ant",
+        place: "Accra",
+        thing: "Anvil",
+        food: "Apple"
+      },
+      "2026-02-08T00:00:15.000Z"
+    );
+    expect(hostSubmitted.ok).toBe(true);
+    if (!hostSubmitted.ok) {
+      return;
+    }
+
+    const adaSubmitted = submitRoundAnswers(
+      hostSubmitted.nextState,
+      "p-ada",
+      {
+        name: "Ada",
+        animal: "Ant",
+        place: "Austin",
+        thing: "Arrow",
+        food: "Apricot"
+      },
+      "2026-02-08T00:00:16.000Z"
+    );
+    expect(adaSubmitted.ok).toBe(true);
+    if (!adaSubmitted.ok) {
+      return;
+    }
+
+    const ended = endRoundManually(adaSubmitted.nextState, "host", "2026-02-08T00:00:18.000Z");
+    expect(ended.ok).toBe(true);
+    if (!ended.ok) {
+      return;
+    }
+
+    const scoredHost = scoreRoundSubmission(
+      ended.nextState,
+      "host-token",
+      1,
+      "host",
+      {
+        name: true,
+        animal: true,
+        place: true,
+        thing: true,
+        food: true
+      },
+      "2026-02-08T00:00:30.000Z"
+    );
+    expect(scoredHost.ok).toBe(true);
+    if (!scoredHost.ok) {
+      return;
+    }
+
+    const scoredAda = scoreRoundSubmission(
+      scoredHost.nextState,
+      "host-token",
+      1,
+      "p-ada",
+      {
+        name: true,
+        animal: true,
+        place: true,
+        thing: true,
+        food: true
+      },
+      "2026-02-08T00:00:31.000Z"
+    );
+    expect(scoredAda.ok).toBe(true);
+    if (!scoredAda.ok) {
+      return;
+    }
+
+    const hostReview = scoredAda.nextState.game.completedRounds[0].submissions.find((submission) => submission.participantId === "host")
+      ?.review;
+    const adaReview = scoredAda.nextState.game.completedRounds[0].submissions.find((submission) => submission.participantId === "p-ada")
+      ?.review;
+
+    expect(hostReview?.scores).toEqual({
+      name: 5,
+      animal: 5,
+      place: 10,
+      thing: 10,
+      food: 10,
+      total: 40
+    });
+    expect(adaReview?.scores).toEqual({
+      name: 5,
+      animal: 5,
+      place: 10,
+      thing: 10,
+      food: 10,
+      total: 40
+    });
+  });
+
   it("does not publish a round until every submission is reviewed", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 4, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -631,7 +782,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("publishes round scores and blocks later edits", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 5, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -713,7 +864,7 @@ describe("unit: round flow logic", () => {
   });
 
   it("rejects scoring with an invalid host token", () => {
-    const started = createStartedState("TIMER");
+    const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 4, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {

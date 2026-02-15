@@ -17,9 +17,10 @@ import {
   updateRoundDraft,
   type CreateRoomResponse,
   type JoinRoomResponse,
+  type ManualEndPolicy,
   type RoundAnswerInput,
-  type RoundEndRule,
   type RoundMarks,
+  type ScoringMode,
   type RoomSocketEvent,
   type RoomStateResponse,
   type RoundSubmission
@@ -34,6 +35,7 @@ import {
 } from "./sound";
 
 const SESSION_KEY_PREFIX = "i-call-on:session:";
+const DRAFT_KEY_PREFIX = "i-call-on:draft:";
 const LETTERS = Array.from({ length: 26 }, (_, index) => ({ number: index + 1, letter: String.fromCharCode(65 + index) }));
 const ROUND_FIELDS: Array<{ key: keyof RoundAnswerInput; label: string }> = [
   { key: "name", label: "Name" },
@@ -49,6 +51,16 @@ type RoomParticipantSession = {
   isHost: boolean;
   hostToken?: string;
 };
+
+type StoredRoundDraft = {
+  roomCode: string;
+  participantId: string;
+  roundNumber: number;
+  answers: RoundAnswerInput;
+  updatedAt: string;
+};
+
+type RoundEndPreset = "HOST_OR_TIMER" | "CALLER_OR_TIMER" | "TIMER_ONLY";
 
 function parseJoinRoomCode(pathname: string): string | null {
   const match = pathname.match(/^\/join\/([A-Za-z0-9]+)\/?$/);
@@ -124,6 +136,89 @@ function clearRoomSession(roomCode: string): void {
   }
 }
 
+function roundDraftKey(roomCode: string, participantId: string, roundNumber: number): string {
+  return `${DRAFT_KEY_PREFIX}${roomCode.toUpperCase()}:${participantId}:${roundNumber}`;
+}
+
+function saveRoundDraft(roomCode: string, participantId: string, roundNumber: number, answers: RoundAnswerInput): void {
+  try {
+    const payload: StoredRoundDraft = {
+      roomCode: roomCode.toUpperCase(),
+      participantId,
+      roundNumber,
+      answers,
+      updatedAt: new Date().toISOString()
+    };
+
+    window.localStorage.setItem(roundDraftKey(roomCode, participantId, roundNumber), JSON.stringify(payload));
+  } catch {
+    // Ignore localStorage failures.
+  }
+}
+
+function readRoundDraft(roomCode: string, participantId: string, roundNumber: number): RoundAnswerInput | null {
+  try {
+    const raw = window.localStorage.getItem(roundDraftKey(roomCode, participantId, roundNumber));
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<StoredRoundDraft>;
+    const answers = parsed.answers;
+    if (!answers || typeof answers !== "object") {
+      return null;
+    }
+
+    if (
+      typeof answers.name !== "string" ||
+      typeof answers.animal !== "string" ||
+      typeof answers.place !== "string" ||
+      typeof answers.thing !== "string" ||
+      typeof answers.food !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      name: answers.name,
+      animal: answers.animal,
+      place: answers.place,
+      thing: answers.thing,
+      food: answers.food
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearRoundDraft(roomCode: string, participantId: string, roundNumber: number): void {
+  try {
+    window.localStorage.removeItem(roundDraftKey(roomCode, participantId, roundNumber));
+  } catch {
+    // Ignore localStorage failures.
+  }
+}
+
+function clearAllRoundDraftsForParticipant(roomCode: string, participantId: string): void {
+  try {
+    const prefix = `${DRAFT_KEY_PREFIX}${roomCode.toUpperCase()}:${participantId}:`;
+    const keysToDelete: string[] = [];
+
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key && key.startsWith(prefix)) {
+        keysToDelete.push(key);
+      }
+    }
+
+    for (const key of keysToDelete) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore localStorage failures.
+  }
+}
+
 function emptyRoundAnswers(): RoundAnswerInput {
   return {
     name: "",
@@ -132,6 +227,10 @@ function emptyRoundAnswers(): RoundAnswerInput {
     thing: "",
     food: ""
   };
+}
+
+function roundAnswersSignature(answers: RoundAnswerInput): string {
+  return JSON.stringify(answers);
 }
 
 function defaultMarks(): RoundMarks {
@@ -175,6 +274,80 @@ function lettersFromNumbers(numbers: number[]): string {
   return numbers.map((number) => String.fromCharCode(64 + number)).join(", ");
 }
 
+function formatTimerDisplay(seconds: number | null): string {
+  if (seconds === null || Number.isNaN(seconds)) {
+    return "--:--";
+  }
+
+  const safe = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safe / 60)
+    .toString()
+    .padStart(2, "0");
+  const remainder = (safe % 60).toString().padStart(2, "0");
+  return `${minutes}:${remainder}`;
+}
+
+function manualPolicyFromPreset(preset: RoundEndPreset): ManualEndPolicy {
+  if (preset === "CALLER_OR_TIMER") {
+    return "CALLER_OR_TIMER";
+  }
+
+  if (preset === "TIMER_ONLY") {
+    return "NONE";
+  }
+
+  return "HOST_OR_CALLER";
+}
+
+function roundEndRuleLabel(config: RoomStateResponse["game"]["config"]): string {
+  if (config.endRule === "TIMER") {
+    if (config.manualEndPolicy === "CALLER_OR_TIMER" || config.manualEndPolicy === "CALLER_ONLY") {
+      return "Current caller or timer";
+    }
+
+    if (config.manualEndPolicy === "NONE") {
+      return "Timer only";
+    }
+
+    return "Host or timer";
+  }
+
+  if (config.endRule === "FIRST_SUBMISSION") {
+    return "First submission only (legacy)";
+  }
+
+  return "Whichever comes first (legacy)";
+}
+
+function scoringModeLabel(mode: ScoringMode): string {
+  return mode === "SHARED_10" ? "Shared 10 by matching answers" : "Fixed 10/0";
+}
+
+function wasSubmissionRecorded(
+  snapshot: RoomStateResponse,
+  participantId: string,
+  roundNumber: number | null
+): boolean {
+  if (roundNumber === null) {
+    return false;
+  }
+
+  if (
+    snapshot.game.activeRound &&
+    snapshot.game.activeRound.roundNumber === roundNumber &&
+    snapshot.game.activeRound.submissions.some((entry) => entry.participantId === participantId)
+  ) {
+    return true;
+  }
+
+  const completed = snapshot.game.completedRounds.find((entry) => entry.roundNumber === roundNumber);
+  if (!completed) {
+    return false;
+  }
+
+  return completed.submissions.some((entry) => entry.participantId === participantId);
+}
+
 function snapshotFromEvent(event: RoomSocketEvent): RoomStateResponse | null {
   if (
     event.type === "snapshot" ||
@@ -200,7 +373,8 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
   const [hostName, setHostName] = useState("");
   const [maxParticipants, setMaxParticipants] = useState(10);
   const [roundSeconds, setRoundSeconds] = useState(20);
-  const [endRule, setEndRule] = useState<RoundEndRule>("WHICHEVER_FIRST");
+  const [roundEndPreset, setRoundEndPreset] = useState<RoundEndPreset>("HOST_OR_TIMER");
+  const [scoringMode, setScoringMode] = useState<ScoringMode>("FIXED_10");
   const [creating, setCreating] = useState(false);
   const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -314,7 +488,9 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
     try {
       await startGame(room.roomCode, room.hostToken, {
         roundSeconds,
-        endRule
+        endRule: "TIMER",
+        manualEndPolicy: manualPolicyFromPreset(roundEndPreset),
+        scoringMode
       });
       onNavigate(`/game/${room.roomCode}`);
     } catch (startError) {
@@ -433,10 +609,16 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
             />
 
             <label htmlFor="endRule">Round end rule</label>
-            <select id="endRule" value={endRule} onChange={(event) => setEndRule(event.target.value as RoundEndRule)}>
-              <option value="WHICHEVER_FIRST">Whichever comes first</option>
-              <option value="TIMER">Timer only</option>
-              <option value="FIRST_SUBMISSION">First submission only</option>
+            <select id="endRule" value={roundEndPreset} onChange={(event) => setRoundEndPreset(event.target.value as RoundEndPreset)}>
+              <option value="HOST_OR_TIMER">Host or timer</option>
+              <option value="CALLER_OR_TIMER">Current caller or timer</option>
+              <option value="TIMER_ONLY">Timer only</option>
+            </select>
+
+            <label htmlFor="scoringMode">Scoring mode</label>
+            <select id="scoringMode" value={scoringMode} onChange={(event) => setScoringMode(event.target.value as ScoringMode)}>
+              <option value="FIXED_10">Fixed 10/0 per field</option>
+              <option value="SHARED_10">Shared 10 by matching answers</option>
             </select>
           </div>
 
@@ -709,8 +891,9 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
   const [nowEpoch, setNowEpoch] = useState(() => Date.now());
   const [participantSession, setParticipantSession] = useState<RoomParticipantSession | null>(() => readRoomSession(roomCode));
   const activeCallerIdRef = useRef<string | null>(null);
+  const previousRoundNumberRef = useRef<number | null>(null);
   const draftSyncTimeoutRef = useRef<number | null>(null);
-  const lastDraftSignatureRef = useRef<string>("");
+  const lastDraftSignatureRef = useRef<string>(roundAnswersSignature(emptyRoundAnswers()));
 
   useEffect(() => {
     setParticipantSession(readRoomSession(roomCode));
@@ -828,7 +1011,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
 
     const timer = window.setInterval(() => {
       setNowEpoch(Date.now());
-    }, 200);
+    }, 500);
 
     return () => {
       window.clearInterval(timer);
@@ -863,6 +1046,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
   const currentTurnParticipantId = roomState?.game.currentTurnParticipantId ?? null;
   const isMyTurn = !!participantId && participantId === currentTurnParticipantId;
   const alreadySubmitted = !!participantId && !!activeRound?.submissions.some((entry) => entry.participantId === participantId);
+  const activeRoundNumber = activeRound?.roundNumber ?? null;
 
   const countdownEndsAtEpoch = activeRound ? new Date(activeRound.countdownEndsAt).getTime() : null;
   const endsAtEpoch = activeRound?.endsAt ? new Date(activeRound.endsAt).getTime() : null;
@@ -876,6 +1060,38 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
         ? roomState?.game.config.roundSeconds ?? null
         : null;
 
+  const sidebarTimer = useMemo(() => {
+    if (!activeRound) {
+      return {
+        label: "Round Timer",
+        value: "--:--",
+        hint: "Waiting for next letter"
+      };
+    }
+
+    if (showLetterModal) {
+      return {
+        label: "Starting In",
+        value: formatTimerDisplay(countdownSecondsLeft),
+        hint: `R${activeRound.roundNumber} · Letter ${activeRound.activeLetter}`
+      };
+    }
+
+    if (activeRound.endsAt) {
+      return {
+        label: "Time Left",
+        value: formatTimerDisplay(timerSecondsLeft),
+        hint: `R${activeRound.roundNumber} · Letter ${activeRound.activeLetter}`
+      };
+    }
+
+    return {
+      label: "No Timer",
+      value: "∞",
+      hint: `R${activeRound.roundNumber} · Letter ${activeRound.activeLetter}`
+    };
+  }, [activeRound, countdownSecondsLeft, showLetterModal, timerSecondsLeft]);
+
   const shouldPlayTimerSong = !!activeRound && !!activeRound.endsAt && isRoundOpen;
 
   useEffect(() => {
@@ -883,8 +1099,48 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
   }, [activeRound?.turnParticipantId]);
 
   useEffect(() => {
-    lastDraftSignatureRef.current = "";
-  }, [activeRound?.roundNumber]);
+    if (!participantId || !isAdmitted || activeRoundNumber === null) {
+      setRoundAnswers(emptyRoundAnswers());
+      lastDraftSignatureRef.current = roundAnswersSignature(emptyRoundAnswers());
+      return;
+    }
+
+    if (alreadySubmitted) {
+      setRoundAnswers(emptyRoundAnswers());
+      lastDraftSignatureRef.current = roundAnswersSignature(emptyRoundAnswers());
+      clearRoundDraft(roomCode, participantId, activeRoundNumber);
+      return;
+    }
+
+    const restored = readRoundDraft(roomCode, participantId, activeRoundNumber);
+    if (restored) {
+      setRoundAnswers(restored);
+      // Force a background sync for locally restored drafts.
+      lastDraftSignatureRef.current = "";
+      return;
+    }
+
+    setRoundAnswers(emptyRoundAnswers());
+    lastDraftSignatureRef.current = roundAnswersSignature(emptyRoundAnswers());
+  }, [activeRoundNumber, alreadySubmitted, isAdmitted, participantId, roomCode]);
+
+  useEffect(() => {
+    if (!participantId) {
+      previousRoundNumberRef.current = null;
+      return;
+    }
+
+    const previousRound = previousRoundNumberRef.current;
+    if (previousRound !== null && previousRound !== activeRoundNumber) {
+      clearRoundDraft(roomCode, participantId, previousRound);
+    }
+
+    if (alreadySubmitted && activeRoundNumber !== null) {
+      clearRoundDraft(roomCode, participantId, activeRoundNumber);
+    }
+
+    previousRoundNumberRef.current = activeRoundNumber;
+  }, [activeRoundNumber, alreadySubmitted, participantId, roomCode]);
 
   useEffect(() => {
     if (shouldPlayTimerSong) {
@@ -915,7 +1171,24 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
     !!roomState && roomState.game.status === "IN_PROGRESS" && !!activeRound && isAdmitted && isRoundOpen && !alreadySubmitted && !submitting;
 
   const canEndRoundEarly =
-    !!activeRound && !!participantId && isAdmitted && !endingRound && (isHost || participantId === activeRound.turnParticipantId);
+    !!activeRound &&
+    !!participantId &&
+    isAdmitted &&
+    !endingRound &&
+    (() => {
+      const policy = roomState?.game.config.manualEndPolicy ?? "HOST_OR_CALLER";
+      const isCaller = participantId === activeRound.turnParticipantId;
+
+      if (policy === "HOST_OR_CALLER") {
+        return isHost || isCaller;
+      }
+
+      if (policy === "CALLER_ONLY" || policy === "CALLER_OR_TIMER") {
+        return isCaller;
+      }
+
+      return false;
+    })();
 
   const canScoreSubmissions = isHost && !!hostToken;
   const canEndGame = !!roomState && roomState.game.status === "IN_PROGRESS" && isHost && !!hostToken;
@@ -930,11 +1203,13 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
     !submitting;
 
   useEffect(() => {
-    if (!canAutosaveDraft || !participantId) {
+    if (!canAutosaveDraft || !participantId || activeRoundNumber === null) {
       return;
     }
 
-    const signature = JSON.stringify(roundAnswers);
+    saveRoundDraft(roomCode, participantId, activeRoundNumber, roundAnswers);
+
+    const signature = roundAnswersSignature(roundAnswers);
     if (signature === lastDraftSignatureRef.current) {
       return;
     }
@@ -955,7 +1230,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
         .finally(() => {
           draftSyncTimeoutRef.current = null;
         });
-    }, 180);
+    }, 420);
 
     return () => {
       if (draftSyncTimeoutRef.current !== null) {
@@ -963,7 +1238,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
         draftSyncTimeoutRef.current = null;
       }
     };
-  }, [canAutosaveDraft, participantId, roomCode, roundAnswers]);
+  }, [activeRoundNumber, canAutosaveDraft, participantId, roomCode, roundAnswers]);
 
   const isRoundFullyReviewed = (round: RoomStateResponse["game"]["completedRounds"][number]): boolean => {
     return round.submissions.every((submission) => !!submission.review);
@@ -995,18 +1270,60 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
     }
 
     const isCallerSubmission = participantId === activeRound?.turnParticipantId;
+    const roundNumberAtSubmit = activeRoundNumber;
+    if (roundNumberAtSubmit !== null) {
+      saveRoundDraft(roomCode, participantId, roundNumberAtSubmit, roundAnswers);
+    }
     setError(null);
     setSubmitting(true);
 
     try {
+      if (draftSyncTimeoutRef.current !== null) {
+        window.clearTimeout(draftSyncTimeoutRef.current);
+        draftSyncTimeoutRef.current = null;
+      }
+
+      const submitSignature = roundAnswersSignature(roundAnswers);
+      if (roundNumberAtSubmit !== null && submitSignature !== lastDraftSignatureRef.current) {
+        try {
+          await updateRoundDraft(roomCode, participantId, roundAnswers);
+          lastDraftSignatureRef.current = submitSignature;
+        } catch {
+          // Ignore draft-flush failures; submission request is still authoritative.
+        }
+      }
+
       const nextState = await submitRoundAnswers(roomCode, participantId, roundAnswers);
       setRoomState(nextState);
-      lastDraftSignatureRef.current = "";
+      if (roundNumberAtSubmit !== null) {
+        clearRoundDraft(roomCode, participantId, roundNumberAtSubmit);
+      }
+      lastDraftSignatureRef.current = roundAnswersSignature(emptyRoundAnswers());
       if (isCallerSubmission) {
         stopRoundTimerSong();
       }
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Unable to submit round answers");
+      const fallbackMessage = submitError instanceof Error ? submitError.message : "Unable to submit round answers";
+      let recovered = false;
+
+      try {
+        const refreshed = await getRoomState(roomCode);
+        setRoomState(refreshed);
+        if (wasSubmissionRecorded(refreshed, participantId, roundNumberAtSubmit)) {
+          recovered = true;
+          setError(null);
+          if (roundNumberAtSubmit !== null) {
+            clearRoundDraft(roomCode, participantId, roundNumberAtSubmit);
+          }
+          lastDraftSignatureRef.current = roundAnswersSignature(emptyRoundAnswers());
+        }
+      } catch {
+        // Ignore fallback fetch failures and show original submit error.
+      }
+
+      if (!recovered) {
+        setError(fallbackMessage);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -1023,7 +1340,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
     try {
       const nextState = await endRoundNow(roomCode, participantId);
       setRoomState(nextState);
-      lastDraftSignatureRef.current = "";
+      lastDraftSignatureRef.current = roundAnswersSignature(emptyRoundAnswers());
       stopRoundTimerSong();
     } catch (endError) {
       setError(endError instanceof Error ? endError.message : "Unable to end round");
@@ -1121,6 +1438,9 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
 
   const onCreateAnotherGame = () => {
     stopRoundTimerSong();
+    if (participantId) {
+      clearAllRoundDraftsForParticipant(roomCode, participantId);
+    }
     clearRoomSession(roomCode);
     onNavigate("/");
   };
@@ -1137,86 +1457,12 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
 
       {roomState ? (
         <div className="result game-layout">
-          {showLeaderboard && scoring ? (
-            <aside className="score-sidebar" aria-label="score-sidebar">
-              <h3>Leaderboard</h3>
-              <p className="hint">
-                Published rounds: <strong>{scoring.publishedRounds}</strong> | Pending publish: {scoring.pendingPublicationRounds.length}
-              </p>
-              {scoring.leaderboard.map((entry) => (
-                <div key={entry.participantId} className="score-player">
-                  <div className="score-player-head">
-                    <span>{entry.participantName}</span>
-                    <strong>{entry.totalScore}</strong>
-                  </div>
-                  <p className="score-player-history">
-                    {entry.history.length > 0 ? entry.history.map((item) => `R${item.roundNumber} ${item.activeLetter}:${item.score}`).join(" | ") : "No published rounds"}
-                  </p>
-                </div>
-              ))}
-            </aside>
-          ) : null}
-
           <div className="game-main">
-            <p>
-              Host: <strong>{roomState.meta.hostName}</strong>
-            </p>
-            <p>
-              Game status: <strong>{roomState.game.status}</strong>
-            </p>
-            <p>
-              End rule: <strong>{roomState.game.config.endRule}</strong>
-            </p>
-            <p>
-              Round seconds: <strong>{roomState.game.config.roundSeconds}</strong>
-            </p>
-            <p>
-              Admitted players: <strong>{roomState.counts.admitted}</strong> / {roomState.meta.maxParticipants}
-            </p>
-            <p>
-              Connected clients: <strong>{connectedClients}</strong>
-            </p>
-            <p>
-              You are: <strong>{me ? me.name : participantSession?.participantName ?? "Spectator"}</strong>
-            </p>
-
-            {scoring ? (
-              <>
-                <p>
-                  Fair rounds: <strong>{scoring.maxRounds}</strong> ({scoring.roundsPerPlayer} each)
-                </p>
-                <p>
-                  Rounds played: <strong>{scoring.roundsPlayed}</strong> / {scoring.maxRounds}
-                </p>
-                <p>
-                  Used letters: <strong>{lettersFromNumbers(scoring.usedNumbers)}</strong>
-                </p>
-                {scoring.isComplete ? <p className="success">Fair round limit reached. No more letters can be played.</p> : null}
-              </>
-            ) : null}
-
-            {roomState.game.status === "LOBBY" ? <p className="hint">Waiting for host to start the game.</p> : null}
-            {roomState.game.status === "CANCELLED" ? (
-              <p className="error">Game cancelled by host. This room is closed and the join link is expired.</p>
-            ) : null}
-            {roomState.game.status === "FINISHED" ? (
-              <p className="success">Game ended. Final leaderboard is locked.</p>
-            ) : null}
-            {isHost && (roomState.game.status === "CANCELLED" || roomState.game.status === "FINISHED") ? (
-              <button type="button" className="secondary-btn" onClick={onCreateAnotherGame}>
-                Create another game
-              </button>
-            ) : null}
-            {canEndGame ? (
-              <button type="button" className="secondary-btn" onClick={onEndGame} disabled={!!actionKey}>
-                {actionKey === "finish-game" ? "Ending game..." : "End game and show results"}
-              </button>
-            ) : null}
-
-            {roomState.game.status === "IN_PROGRESS" ? (
-              <>
-                {unpublishedRounds.length > 0 ? (
-                  <p className="hint">Submit or discard the current round result before calling the next letter.</p>
+            <div className="game-primary">
+              {roomState.game.status === "IN_PROGRESS" ? (
+                <>
+                  {unpublishedRounds.length > 0 ? (
+                    <p className="hint">Submit or discard the current round result before calling the next letter.</p>
                 ) : null}
                 <h3>Letters A-Z</h3>
                 <div className="letters-row" role="region" aria-label="letters-row">
@@ -1362,6 +1608,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                     </form>
 
                     {!isRoundOpen ? <p className="hint">Fields are read-only until countdown ends.</p> : null}
+                    {isRoundOpen && !alreadySubmitted ? <p className="hint">Draft auto-saves locally while you type.</p> : null}
                     {alreadySubmitted ? <p className="success">Your submission has been recorded for this round.</p> : null}
                   </>
                 )}
@@ -1397,7 +1644,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                                     {ROUND_FIELDS.map((field) => {
                                       const isReviewed = !!reviewedMarks;
                                       const isCorrect = reviewedMarks ? reviewedMarks[field.key as keyof RoundMarks] : false;
-                                      const cellScore = isReviewed ? (isCorrect ? 10 : 0) : "-";
+                                      const cellScore = submission.review ? submission.review.scores[field.key] : "-";
                                       return (
                                         <td key={`${submission.participantId}:${field.key}`}>
                                           <div className="mark-cell">
@@ -1473,10 +1720,91 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                     })}
                   </div>
                 ) : (
-                  <p className="hint">No pending round scoring pages. Published rounds are already on the left leaderboard.</p>
+                  <p className="hint">No pending round scoring pages. Published rounds are already on the leaderboard.</p>
                 )}
-              </>
-            ) : null}
+                </>
+              ) : null}
+            </div>
+
+            <div className="game-details">
+              <div className="game-details-head">
+                <h3>Game Details</h3>
+                <span className="status-chip">{roomState.game.status}</span>
+              </div>
+
+              <div className="game-details-grid">
+                <div className="detail-item">
+                  <span className="detail-label">Host</span>
+                  <strong className="detail-value">{roomState.meta.hostName}</strong>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Round End Rule</span>
+                  <strong className="detail-value">{roundEndRuleLabel(roomState.game.config)}</strong>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Scoring Mode</span>
+                  <strong className="detail-value">{scoringModeLabel(roomState.game.config.scoringMode)}</strong>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Round Seconds</span>
+                  <strong className="detail-value">{roomState.game.config.roundSeconds}</strong>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Admitted Players</span>
+                  <strong className="detail-value">
+                    {roomState.counts.admitted} / {roomState.meta.maxParticipants}
+                  </strong>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Connected Clients</span>
+                  <strong className="detail-value">{connectedClients}</strong>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">You Are</span>
+                  <strong className="detail-value">{me ? me.name : participantSession?.participantName ?? "Spectator"}</strong>
+                </div>
+                {scoring ? (
+                  <>
+                    <div className="detail-item">
+                      <span className="detail-label">Fair Rounds</span>
+                      <strong className="detail-value">
+                        {scoring.maxRounds} ({scoring.roundsPerPlayer} each)
+                      </strong>
+                    </div>
+                    <div className="detail-item">
+                      <span className="detail-label">Rounds Played</span>
+                      <strong className="detail-value">
+                        {scoring.roundsPlayed} / {scoring.maxRounds}
+                      </strong>
+                    </div>
+                    <div className="detail-item detail-item-wide">
+                      <span className="detail-label">Used Letters</span>
+                      <strong className="detail-value">{lettersFromNumbers(scoring.usedNumbers)}</strong>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+
+              {scoring?.isComplete ? <p className="success">Fair round limit reached. No more letters can be played.</p> : null}
+
+              {roomState.game.status === "LOBBY" ? <p className="hint">Waiting for host to start the game.</p> : null}
+              {roomState.game.status === "CANCELLED" ? (
+                <p className="error">Game cancelled by host. This room is closed and the join link is expired.</p>
+              ) : null}
+              {roomState.game.status === "FINISHED" ? (
+                <p className="success">Game ended. Final leaderboard is locked.</p>
+              ) : null}
+              {isHost && (roomState.game.status === "CANCELLED" || roomState.game.status === "FINISHED") ? (
+                <button type="button" className="secondary-btn" onClick={onCreateAnotherGame}>
+                  Create another game
+                </button>
+              ) : null}
+              {canEndGame ? (
+                <button type="button" className="secondary-btn details-action-btn" onClick={onEndGame} disabled={!!actionKey}>
+                  {actionKey === "finish-game" ? "Ending game..." : "End game and show results"}
+                </button>
+              ) : null}
+            </div>
 
             {roomState.game.status === "FINISHED" ? (
               <div className="results-panel" aria-label="final-results-panel">
@@ -1512,6 +1840,42 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
               </div>
             ) : null}
           </div>
+
+          {showLeaderboard && scoring ? (
+            <aside className="score-sidebar" aria-label="score-sidebar">
+              <div className="sidebar-timer-card" aria-label="sidebar-timer">
+                <p className="sidebar-timer-label">{sidebarTimer.label}</p>
+                <p
+                  className={`sidebar-timer-value${
+                    activeRound?.endsAt && !showLetterModal && (timerSecondsLeft ?? 999) <= 5 ? " sidebar-timer-value-danger" : ""
+                  }`}
+                >
+                  {sidebarTimer.value}
+                </p>
+                <p className="sidebar-timer-hint">{sidebarTimer.hint}</p>
+              </div>
+
+              <div className="score-sidebar-head">
+                <h3>Leaderboard</h3>
+                <p className="score-sidebar-meta">
+                  <span>Published {scoring.publishedRounds}</span>
+                  <span>Pending {scoring.pendingPublicationRounds.length}</span>
+                </p>
+              </div>
+              {scoring.leaderboard.map((entry, index) => (
+                <div key={entry.participantId} className="score-player">
+                  <span className="score-player-rank">#{index + 1}</span>
+                  <div className="score-player-head">
+                    <span className="score-player-name">{entry.participantName}</span>
+                    <strong>{entry.totalScore}</strong>
+                  </div>
+                  <p className="score-player-history">
+                    {entry.history.length > 0 ? entry.history.map((item) => `R${item.roundNumber} ${item.activeLetter}:${item.score}`).join(" | ") : "No published rounds"}
+                  </p>
+                </div>
+              ))}
+            </aside>
+          ) : null}
         </div>
       ) : null}
 
@@ -1531,7 +1895,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
 
 export default function App() {
   const [pathname, setPathname] = useState(window.location.pathname);
-  const bubbleSeeds = useMemo(() => Array.from({ length: 18 }, (_, index) => index), []);
+  const bubbleSeeds = useMemo(() => Array.from({ length: 12 }, (_, index) => index), []);
 
   useEffect(() => {
     const onPopState = () => {

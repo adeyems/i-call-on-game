@@ -115,6 +115,8 @@ function createMockEnv(): Env {
               config?: {
                 roundSeconds?: number;
                 endRule?: "TIMER" | "FIRST_SUBMISSION" | "WHICHEVER_FIRST";
+                manualEndPolicy?: "HOST_OR_CALLER" | "CALLER_ONLY" | "CALLER_OR_TIMER" | "NONE";
+                scoringMode?: "FIXED_10" | "SHARED_10";
               };
             };
             if (!payload.hostToken) {
@@ -1326,5 +1328,247 @@ describe("integration: lobby and round lifecycle routes", () => {
     const hostEntry = state.game.scoring.leaderboard.find((entry) => entry.participantId === "host");
     expect(hostEntry?.totalScore).toBe(40);
     expect(hostEntry?.history[0]).toMatchObject({ roundNumber: 1, activeLetter: "A", score: 40 });
+  });
+
+  it("rejects caller-or-timer manual policy when end rule has no timer", async () => {
+    const env = createMockEnv();
+
+    const createResponse = await worker.fetch(
+      new Request("http://localhost/api/rooms", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ hostName: "Qudus", maxParticipants: 3 })
+      }),
+      env
+    );
+    const created = (await createResponse.json()) as { roomCode: string; hostToken: string };
+
+    const joinResponse = await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/join`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ name: "Ada" })
+      }),
+      env
+    );
+    const joinPayload = (await joinResponse.json()) as { requestId: string };
+
+    await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/admissions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ hostToken: created.hostToken, requestId: joinPayload.requestId, approve: true })
+      }),
+      env
+    );
+
+    const startResponse = await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          hostToken: created.hostToken,
+          config: {
+            roundSeconds: 15,
+            endRule: "FIRST_SUBMISSION",
+            manualEndPolicy: "CALLER_OR_TIMER"
+          }
+        })
+      }),
+      env
+    );
+
+    expect(startResponse.status).toBe(400);
+    await expect(startResponse.json()).resolves.toEqual({
+      error: "CALLER_OR_TIMER requires a timer-based endRule"
+    });
+  });
+
+  it("splits shared scoring points across matching answers", async () => {
+    const env = createMockEnv();
+
+    const createResponse = await worker.fetch(
+      new Request("http://localhost/api/rooms", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ hostName: "Qudus", maxParticipants: 3 })
+      }),
+      env
+    );
+    const created = (await createResponse.json()) as { roomCode: string; hostToken: string };
+
+    const joinResponse = await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/join`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ name: "Ada" })
+      }),
+      env
+    );
+    const joinPayload = (await joinResponse.json()) as { requestId: string };
+
+    await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/admissions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ hostToken: created.hostToken, requestId: joinPayload.requestId, approve: true })
+      }),
+      env
+    );
+
+    await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          hostToken: created.hostToken,
+          config: {
+            roundSeconds: 15,
+            endRule: "TIMER",
+            scoringMode: "SHARED_10"
+          }
+        })
+      }),
+      env
+    );
+
+    await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/call`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ participantId: "host", number: 1 })
+      }),
+      env
+    );
+
+    await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/submit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          participantId: "host",
+          answers: {
+            name: "Ada",
+            animal: "Ant",
+            place: "Accra",
+            thing: "Anvil",
+            food: "Apple"
+          }
+        })
+      }),
+      env
+    );
+
+    await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/submit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          participantId: joinPayload.requestId,
+          answers: {
+            name: "Ada",
+            animal: "Ant",
+            place: "Austin",
+            thing: "Arrow",
+            food: "Apricot"
+          }
+        })
+      }),
+      env
+    );
+
+    await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/end`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ participantId: "host" })
+      }),
+      env
+    );
+
+    await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/score`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          hostToken: created.hostToken,
+          roundNumber: 1,
+          participantId: "host",
+          marks: { name: true, animal: true, place: true, thing: true, food: true }
+        })
+      }),
+      env
+    );
+
+    const scoreAdaResponse = await worker.fetch(
+      new Request(`http://localhost/api/rooms/${created.roomCode}/score`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          hostToken: created.hostToken,
+          roundNumber: 1,
+          participantId: joinPayload.requestId,
+          marks: { name: true, animal: true, place: true, thing: true, food: true }
+        })
+      }),
+      env
+    );
+
+    expect(scoreAdaResponse.status).toBe(200);
+    const state = (await scoreAdaResponse.json()) as {
+      game: {
+        completedRounds: Array<{
+          submissions: Array<{
+            participantId: string;
+            review: {
+              scores: {
+                name: number;
+                animal: number;
+                total: number;
+              };
+            } | null;
+          }>;
+        }>;
+      };
+    };
+
+    const round = state.game.completedRounds[0];
+    const hostSubmission = round.submissions.find((submission) => submission.participantId === "host");
+    const adaSubmission = round.submissions.find((submission) => submission.participantId === joinPayload.requestId);
+
+    expect(hostSubmission?.review?.scores.name).toBe(5);
+    expect(hostSubmission?.review?.scores.animal).toBe(5);
+    expect(hostSubmission?.review?.scores.total).toBe(40);
+    expect(adaSubmission?.review?.scores.name).toBe(5);
+    expect(adaSubmission?.review?.scores.animal).toBe(5);
+    expect(adaSubmission?.review?.scores.total).toBe(40);
   });
 });

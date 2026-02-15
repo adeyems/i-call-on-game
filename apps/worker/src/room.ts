@@ -12,6 +12,8 @@ export type ParticipantStatus = "PENDING" | "ADMITTED" | "REJECTED";
 export type GameStatus = "LOBBY" | "IN_PROGRESS" | "CANCELLED" | "FINISHED";
 export type RoundEndRule = "TIMER" | "FIRST_SUBMISSION" | "WHICHEVER_FIRST";
 export type RoundEndReason = "TIMER" | "FIRST_SUBMISSION" | "MANUAL_END";
+export type ManualEndPolicy = "HOST_OR_CALLER" | "CALLER_ONLY" | "CALLER_OR_TIMER" | "NONE";
+export type ScoringMode = "FIXED_10" | "SHARED_10";
 
 export interface Participant {
   id: string;
@@ -85,6 +87,8 @@ export interface CompletedRoundState extends ActiveRoundState {
 export interface GameConfig {
   roundSeconds: number;
   endRule: RoundEndRule;
+  manualEndPolicy: ManualEndPolicy;
+  scoringMode: ScoringMode;
 }
 
 export interface GameState {
@@ -193,6 +197,8 @@ export interface RoomSnapshot {
 export interface StartGameInput {
   roundSeconds?: number;
   endRule?: RoundEndRule;
+  manualEndPolicy?: ManualEndPolicy;
+  scoringMode?: ScoringMode;
 }
 
 type RoomMutationFailure = {
@@ -290,6 +296,8 @@ const MAX_NAME_LENGTH = 24;
 const DEFAULT_ROUND_SECONDS = 20;
 const MIN_ROUND_SECONDS = 5;
 const MAX_ROUND_SECONDS = 120;
+const DEFAULT_MANUAL_END_POLICY: ManualEndPolicy = "HOST_OR_CALLER";
+const DEFAULT_SCORING_MODE: ScoringMode = "FIXED_10";
 const MAX_COMPLETED_ROUNDS = 26;
 const ROUND_COUNTDOWN_SECONDS = 3;
 const SCORE_PER_CORRECT_FIELD = 10;
@@ -576,18 +584,86 @@ function normalizeMarks(input: Partial<RoundMarks>): { ok: true; marks: RoundMar
   };
 }
 
-function buildFieldScores(marks: RoundMarks): RoundFieldScores {
+function roundScoreValue(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function answerKeyForField(submission: RoundSubmission, field: RoundFieldKey): string {
+  return normalizeTextAnswer(submission.answers[field]).toLowerCase();
+}
+
+function fieldScoreForSubmission(
+  submissions: RoundSubmission[],
+  submission: RoundSubmission,
+  field: RoundFieldKey,
+  scoringMode: ScoringMode
+): number {
+  const review = submission.review;
+  if (!review || !review.marks[field]) {
+    return 0;
+  }
+
+  if (scoringMode === "FIXED_10") {
+    return SCORE_PER_CORRECT_FIELD;
+  }
+
+  const key = answerKeyForField(submission, field);
+  if (!key) {
+    return 0;
+  }
+
+  const matchingCorrectCount = submissions.reduce((count, current) => {
+    if (!current.review?.marks[field]) {
+      return count;
+    }
+
+    return answerKeyForField(current, field) === key ? count + 1 : count;
+  }, 0);
+
+  if (matchingCorrectCount < 1) {
+    return 0;
+  }
+
+  return roundScoreValue(SCORE_PER_CORRECT_FIELD / matchingCorrectCount);
+}
+
+function buildFieldScoresForSubmission(
+  submissions: RoundSubmission[],
+  submission: RoundSubmission,
+  scoringMode: ScoringMode
+): RoundFieldScores {
   const scores = {
-    name: marks.name ? SCORE_PER_CORRECT_FIELD : 0,
-    animal: marks.animal ? SCORE_PER_CORRECT_FIELD : 0,
-    place: marks.place ? SCORE_PER_CORRECT_FIELD : 0,
-    thing: marks.thing ? SCORE_PER_CORRECT_FIELD : 0,
-    food: marks.food ? SCORE_PER_CORRECT_FIELD : 0,
+    name: fieldScoreForSubmission(submissions, submission, "name", scoringMode),
+    animal: fieldScoreForSubmission(submissions, submission, "animal", scoringMode),
+    place: fieldScoreForSubmission(submissions, submission, "place", scoringMode),
+    thing: fieldScoreForSubmission(submissions, submission, "thing", scoringMode),
+    food: fieldScoreForSubmission(submissions, submission, "food", scoringMode),
     total: 0
   };
 
-  scores.total = scores.name + scores.animal + scores.place + scores.thing + scores.food;
+  scores.total = roundScoreValue(scores.name + scores.animal + scores.place + scores.thing + scores.food);
   return scores;
+}
+
+function recomputeRoundReviewScores(round: CompletedRoundState, scoringMode: ScoringMode): CompletedRoundState {
+  const nextSubmissions = round.submissions.map((submission) => {
+    if (!submission.review) {
+      return submission;
+    }
+
+    return {
+      ...submission,
+      review: {
+        ...submission.review,
+        scores: buildFieldScoresForSubmission(round.submissions, submission, scoringMode)
+      }
+    };
+  });
+
+  return {
+    ...round,
+    submissions: nextSubmissions
+  };
 }
 
 function blankSubmission(participant: Participant, nowIso: string, answers: RoundAnswers): RoundSubmission {
@@ -661,6 +737,8 @@ export function buildTurnOrder(state: StoredRoomState): string[] {
 
 function normalizeGameConfig(input?: StartGameInput): { ok: true; config: GameConfig } | RoomMutationFailure {
   const endRule = input?.endRule ?? "WHICHEVER_FIRST";
+  const manualEndPolicy = input?.manualEndPolicy ?? DEFAULT_MANUAL_END_POLICY;
+  const scoringMode = input?.scoringMode ?? DEFAULT_SCORING_MODE;
   const rawSeconds = input?.roundSeconds ?? DEFAULT_ROUND_SECONDS;
   const roundSeconds = Number(rawSeconds);
 
@@ -680,11 +758,42 @@ function normalizeGameConfig(input?: StartGameInput): { ok: true; config: GameCo
     };
   }
 
+  if (
+    manualEndPolicy !== "HOST_OR_CALLER" &&
+    manualEndPolicy !== "CALLER_ONLY" &&
+    manualEndPolicy !== "CALLER_OR_TIMER" &&
+    manualEndPolicy !== "NONE"
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      error: "manualEndPolicy must be HOST_OR_CALLER, CALLER_ONLY, CALLER_OR_TIMER, or NONE"
+    };
+  }
+
+  if (scoringMode !== "FIXED_10" && scoringMode !== "SHARED_10") {
+    return {
+      ok: false,
+      status: 400,
+      error: "scoringMode must be FIXED_10 or SHARED_10"
+    };
+  }
+
+  if (manualEndPolicy === "CALLER_OR_TIMER" && endRule === "FIRST_SUBMISSION") {
+    return {
+      ok: false,
+      status: 400,
+      error: "CALLER_OR_TIMER requires a timer-based endRule"
+    };
+  }
+
   return {
     ok: true,
     config: {
       roundSeconds,
-      endRule
+      endRule,
+      manualEndPolicy,
+      scoringMode
     }
   };
 }
@@ -737,7 +846,9 @@ export function initializeRoomState(payload: RoomInitPayload, nowIso = new Date(
       finishedAt: null,
       config: {
         roundSeconds: DEFAULT_ROUND_SECONDS,
-        endRule: "WHICHEVER_FIRST"
+        endRule: "WHICHEVER_FIRST",
+        manualEndPolicy: DEFAULT_MANUAL_END_POLICY,
+        scoringMode: DEFAULT_SCORING_MODE
       },
       turnOrder: [],
       currentTurnIndex: 0,
@@ -1184,11 +1295,28 @@ export function endRoundManually(
     };
   }
 
-  if (!participant.isHost && participant.id !== activeRound.turnParticipantId) {
+  const policy = state.game.config.manualEndPolicy;
+  const isCaller = participant.id === activeRound.turnParticipantId;
+  const canEnd =
+    policy === "HOST_OR_CALLER"
+      ? participant.isHost || isCaller
+      : policy === "CALLER_ONLY" || policy === "CALLER_OR_TIMER"
+        ? isCaller
+        : policy === "NONE"
+          ? false
+        : false;
+
+  if (!canEnd) {
+    const messageByPolicy: Record<ManualEndPolicy, string> = {
+      HOST_OR_CALLER: "only the host or current caller can end the round",
+      CALLER_ONLY: "only the current caller can end the round",
+      CALLER_OR_TIMER: "only the current caller can end early; timer will also end the round",
+      NONE: "manual round end is disabled for this room"
+    };
     return {
       ok: false,
       status: 403,
-      error: "only the host or current caller can end the round"
+      error: messageByPolicy[policy]
     };
   }
 
@@ -1475,7 +1603,14 @@ export function scoreRoundSubmission(
 
   const nextReview: SubmissionReview = {
     marks: marksResult.marks,
-    scores: buildFieldScores(marksResult.marks),
+    scores: {
+      name: 0,
+      animal: 0,
+      place: 0,
+      thing: 0,
+      food: 0,
+      total: 0
+    },
     markedByParticipantId: host.id,
     markedByParticipantName: host.name,
     markedAt: nowIso
@@ -1487,10 +1622,12 @@ export function scoreRoundSubmission(
   };
 
   const nextSubmissions = round.submissions.map((submission, index) => (index === submissionIndex ? nextSubmission : submission));
-  const nextRound: CompletedRoundState = {
+  const provisionalRound: CompletedRoundState = {
     ...round,
     submissions: nextSubmissions
   };
+  const nextRound = recomputeRoundReviewScores(provisionalRound, state.game.config.scoringMode);
+  const updatedSubmission = nextRound.submissions[submissionIndex];
 
   const nextCompletedRounds = state.game.completedRounds.map((completedRound, index) =>
     index === roundIndex ? nextRound : completedRound
@@ -1498,7 +1635,7 @@ export function scoreRoundSubmission(
 
   return {
     ok: true,
-    updatedSubmission: nextSubmission,
+    updatedSubmission,
     nextState: {
       ...state,
       game: {

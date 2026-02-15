@@ -51,7 +51,9 @@ describe("unit: lobby state logic", () => {
     expect(state.game.completedRounds).toEqual([]);
     expect(state.game.config).toEqual({
       roundSeconds: 20,
-      endRule: "WHICHEVER_FIRST"
+      endRule: "WHICHEVER_FIRST",
+      manualEndPolicy: "HOST_OR_CALLER",
+      scoringMode: "FIXED_10"
     });
   });
 
@@ -218,7 +220,9 @@ describe("unit: lobby state logic", () => {
         activeRound: null,
         config: {
           roundSeconds: 25,
-          endRule: "TIMER"
+          endRule: "TIMER",
+          manualEndPolicy: "HOST_OR_CALLER",
+          scoringMode: "FIXED_10"
         }
       });
       expect(startResult.nextState.game.turnOrder).toEqual(["host", "p-1"]);
@@ -246,6 +250,35 @@ describe("unit: lobby state logic", () => {
     }
   });
 
+  it("rejects caller-or-timer manual end when round end rule has no timer", () => {
+    const state = initializeRoomState(
+      {
+        roomCode: "ROOM10",
+        hostName: "Host",
+        maxParticipants: 5,
+        hostToken: "host-token"
+      },
+      "2026-02-08T00:00:00.000Z"
+    );
+
+    const withAdmitted: StoredRoomState = {
+      ...state,
+      participants: [...state.participants, createParticipant({ id: "p-1", name: "Ada", status: "ADMITTED" })]
+    };
+
+    const startResult = startGame(withAdmitted, "host-token", {
+      roundSeconds: 25,
+      endRule: "FIRST_SUBMISSION",
+      manualEndPolicy: "CALLER_OR_TIMER"
+    });
+
+    expect(startResult.ok).toBe(false);
+    if (!startResult.ok) {
+      expect(startResult.status).toBe(400);
+      expect(startResult.error).toBe("CALLER_OR_TIMER requires a timer-based endRule");
+    }
+  });
+
   it("blocks admission changes after game has started", () => {
     const state = initializeRoomState(
       {
@@ -267,7 +300,9 @@ describe("unit: lobby state logic", () => {
         finishedAt: null,
         config: {
           roundSeconds: 20,
-          endRule: "WHICHEVER_FIRST"
+          endRule: "WHICHEVER_FIRST",
+          manualEndPolicy: "HOST_OR_CALLER",
+          scoringMode: "FIXED_10"
         },
         turnOrder: ["host"],
         currentTurnIndex: 0,

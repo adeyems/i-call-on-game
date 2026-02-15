@@ -2,6 +2,8 @@ export type ParticipantStatus = "PENDING" | "ADMITTED" | "REJECTED";
 export type GameStatus = "LOBBY" | "IN_PROGRESS" | "CANCELLED" | "FINISHED";
 export type RoundEndRule = "TIMER" | "FIRST_SUBMISSION" | "WHICHEVER_FIRST";
 export type RoundEndReason = "TIMER" | "FIRST_SUBMISSION" | "MANUAL_END";
+export type ManualEndPolicy = "HOST_OR_CALLER" | "CALLER_ONLY" | "CALLER_OR_TIMER" | "NONE";
+export type ScoringMode = "FIXED_10" | "SHARED_10";
 
 export interface CreateRoomResponse {
   roomCode: string;
@@ -142,6 +144,8 @@ export interface RoomStateResponse {
     config: {
       roundSeconds: number;
       endRule: RoundEndRule;
+      manualEndPolicy: ManualEndPolicy;
+      scoringMode: ScoringMode;
     };
     turnOrder: string[];
     currentTurnIndex: number;
@@ -314,7 +318,12 @@ export async function reviewJoinRequest(
 export async function startGame(
   roomCode: string,
   hostToken: string,
-  config?: { roundSeconds?: number; endRule?: RoundEndRule }
+  config?: {
+    roundSeconds?: number;
+    endRule?: RoundEndRule;
+    manualEndPolicy?: ManualEndPolicy;
+    scoringMode?: ScoringMode;
+  }
 ): Promise<RoomStateResponse> {
   const normalizedCode = roomCode.trim().toUpperCase();
   const response = await fetch(`${API_BASE_URL}/api/rooms/${normalizedCode}/start`, {

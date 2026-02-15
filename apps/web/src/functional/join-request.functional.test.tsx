@@ -52,7 +52,9 @@ function makeState(overrides?: {
       cancelledAt: overrides?.game?.cancelledAt ?? null,
       config: {
         roundSeconds: 20,
-        endRule: "WHICHEVER_FIRST"
+        endRule: "WHICHEVER_FIRST",
+        manualEndPolicy: "HOST_OR_CALLER",
+        scoringMode: "FIXED_10"
       },
       turnOrder: overrides?.game?.turnOrder ?? [],
       currentTurnIndex: 0,
