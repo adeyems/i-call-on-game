@@ -197,6 +197,8 @@ describe("functional: participant join request", () => {
         expect(screen.getByRole("heading", { name: /Game Board/i })).toBeInTheDocument();
       });
 
+      expect(screen.getByLabelText(/lobby-waiting-state/i)).toBeInTheDocument();
+      expect(screen.getByText(/has not started the game yet/i)).toBeInTheDocument();
       expect(window.location.pathname).toBe("/game/ROOM99");
       expect(playNotificationSound).toHaveBeenCalledTimes(1);
       expect(playTurnStartSound).not.toHaveBeenCalled();

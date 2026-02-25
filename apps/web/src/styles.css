@@ -299,6 +299,22 @@ code {
   color: #d6ebe1;
 }
 
+.waiting-panel {
+  margin-top: 0;
+}
+
+.waiting-panel h3 {
+  margin: 0 0 0.45rem;
+}
+
+.waiting-panel p {
+  margin: 0 0 0.4rem;
+}
+
+.waiting-panel p:last-child {
+  margin-bottom: 0;
+}
+
 .game-card {
   width: min(1260px, 100%);
 }

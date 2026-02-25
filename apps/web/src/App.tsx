@@ -1548,6 +1548,25 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
           <div className="game-main">
             {showPlayPanel ? (
               <div className="game-primary">
+              {roomState.game.status === "LOBBY" ? (
+                <div className="board-placeholder waiting-panel" role="status" aria-label="lobby-waiting-state">
+                  <h3>Waiting for host to start</h3>
+                  {isAdmitted ? (
+                    <p>
+                      You are admitted as <strong>{me?.name ?? participantSession?.participantName ?? "Player"}</strong>.
+                    </p>
+                  ) : (
+                    <p>
+                      You are connected as <strong>{participantSession?.participantName ?? "Spectator"}</strong>.
+                    </p>
+                  )}
+                  <p>
+                    Host <strong>{roomState.meta.hostName}</strong> has not started the game yet.
+                  </p>
+                  <p className="hint">Stay on this page. You will automatically move into round play when game starts.</p>
+                </div>
+              ) : null}
+
               {roomState.game.status === "IN_PROGRESS" ? (
                 <>
                   {unpublishedRounds.length > 0 ? (
