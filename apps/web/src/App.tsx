@@ -1572,11 +1572,18 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                       <div className="mobile-status-meta">
                         <span>Published {scoring.publishedRounds}</span>
                         <span>Pending {scoring.pendingPublicationRounds.length}</span>
-                        <span>
-                          Leader{" "}
-                          {topLeaderboardEntry
-                            ? `${topLeaderboardEntry.participantName} · ${topLeaderboardEntry.totalScore}`
-                            : "No scores yet"}
+                        <span className="mobile-status-leader">
+                          <span className="mobile-status-leader-label">Leader</span>
+                          {topLeaderboardEntry ? (
+                            <>
+                              <span className="mobile-status-leader-name" title={topLeaderboardEntry.participantName}>
+                                {topLeaderboardEntry.participantName}
+                              </span>
+                              <span className="mobile-status-leader-score">{topLeaderboardEntry.totalScore}</span>
+                            </>
+                          ) : (
+                            <span className="mobile-status-leader-name">No scores yet</span>
+                          )}
                         </span>
                       </div>
                     </div>
@@ -1989,10 +1996,14 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
               <div className="score-sidebar-list">
                 {scoring.leaderboard.map((entry, index) => (
                   <div key={entry.participantId} className="score-player">
-                    <span className="score-player-rank">#{index + 1}</span>
                     <div className="score-player-head">
-                      <span className="score-player-name">{entry.participantName}</span>
-                      <strong>{entry.totalScore}</strong>
+                      <div className="score-player-identity">
+                        <span className="score-player-rank">#{index + 1}</span>
+                        <span className="score-player-name" title={entry.participantName}>
+                          {entry.participantName}
+                        </span>
+                      </div>
+                      <strong className="score-player-total">{entry.totalScore}</strong>
                     </div>
                     <p className="score-player-history">
                       {entry.history.length > 0
