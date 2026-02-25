@@ -61,6 +61,7 @@ type StoredRoundDraft = {
 };
 
 type RoundEndPreset = "HOST_OR_TIMER" | "CALLER_OR_TIMER" | "TIMER_ONLY";
+type MobileGamePanel = "PLAY" | "SCORES" | "DETAILS";
 
 function parseJoinRoomCode(pathname: string): string | null {
   const match = pathname.match(/^\/join\/([A-Za-z0-9]+)\/?$/);
@@ -889,6 +890,14 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
   const [actionKey, setActionKey] = useState<string | null>(null);
   const [roundAnswers, setRoundAnswers] = useState<RoundAnswerInput>(emptyRoundAnswers());
   const [nowEpoch, setNowEpoch] = useState(() => Date.now());
+  const [isCompactLayout, setIsCompactLayout] = useState(() => {
+    if (typeof window.matchMedia === "function") {
+      return window.matchMedia("(max-width: 980px)").matches;
+    }
+
+    return window.innerWidth <= 980;
+  });
+  const [mobilePanel, setMobilePanel] = useState<MobileGamePanel>("PLAY");
   const [participantSession, setParticipantSession] = useState<RoomParticipantSession | null>(() => readRoomSession(roomCode));
   const activeCallerIdRef = useRef<string | null>(null);
   const previousRoundNumberRef = useRef<number | null>(null);
@@ -1018,6 +1027,50 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
     };
   }, [roomState?.game.activeRound]);
 
+  useEffect(() => {
+    if (typeof window.matchMedia === "function") {
+      const mediaQuery = window.matchMedia("(max-width: 980px)");
+      const syncLayout = () => {
+        setIsCompactLayout(mediaQuery.matches);
+      };
+
+      syncLayout();
+
+      if (typeof mediaQuery.addEventListener === "function") {
+        mediaQuery.addEventListener("change", syncLayout);
+        return () => {
+          mediaQuery.removeEventListener("change", syncLayout);
+        };
+      }
+
+      mediaQuery.addListener(syncLayout);
+      return () => {
+        mediaQuery.removeListener(syncLayout);
+      };
+    }
+
+    const onResize = () => {
+      setIsCompactLayout(window.innerWidth <= 980);
+    };
+
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isCompactLayout) {
+      setMobilePanel("PLAY");
+      return;
+    }
+
+    if (roomState?.game.status === "FINISHED") {
+      setMobilePanel("SCORES");
+    }
+  }, [isCompactLayout, roomState?.game.status]);
+
   const participantsById = useMemo(() => {
     const map = new Map<string, { name: string; status: string; isHost: boolean }>();
     for (const participant of roomState?.participants ?? []) {
@@ -1035,6 +1088,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
   const scoring = roomState?.game.scoring;
   const usedNumberSet = useMemo(() => new Set(scoring?.usedNumbers ?? []), [scoring?.usedNumbers]);
   const showLeaderboard = !!scoring && roomState?.game.status !== "LOBBY";
+  const topLeaderboardEntry = scoring?.leaderboard[0] ?? null;
 
   const activeRound = roomState?.game.activeRound ?? null;
   const completedRounds = roomState?.game.completedRounds ?? [];
@@ -1201,6 +1255,10 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
     isRoundOpen &&
     !alreadySubmitted &&
     !submitting;
+
+  const showPlayPanel = !isCompactLayout || mobilePanel === "PLAY";
+  const showScoresPanel = !isCompactLayout || mobilePanel === "SCORES";
+  const showDetailsPanel = !isCompactLayout || mobilePanel === "DETAILS";
 
   useEffect(() => {
     if (!canAutosaveDraft || !participantId || activeRoundNumber === null) {
@@ -1456,49 +1514,112 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
       {error ? <p className="error">{error}</p> : null}
 
       {roomState ? (
-        <div className="result game-layout">
+        <>
+          {isCompactLayout ? (
+            <div className="mobile-panel-nav" role="tablist" aria-label="mobile game sections">
+              <button
+                type="button"
+                className={`mobile-panel-tab${mobilePanel === "PLAY" ? " mobile-panel-tab-active" : ""}`}
+                onClick={() => setMobilePanel("PLAY")}
+                aria-pressed={mobilePanel === "PLAY"}
+              >
+                Play
+              </button>
+              <button
+                type="button"
+                className={`mobile-panel-tab${mobilePanel === "SCORES" ? " mobile-panel-tab-active" : ""}`}
+                onClick={() => setMobilePanel("SCORES")}
+                aria-pressed={mobilePanel === "SCORES"}
+              >
+                {roomState.game.status === "FINISHED" ? "Results" : "Scores"}
+              </button>
+              <button
+                type="button"
+                className={`mobile-panel-tab${mobilePanel === "DETAILS" ? " mobile-panel-tab-active" : ""}`}
+                onClick={() => setMobilePanel("DETAILS")}
+                aria-pressed={mobilePanel === "DETAILS"}
+              >
+                Details
+              </button>
+            </div>
+          ) : null}
+
+          <div className="result game-layout">
           <div className="game-main">
-            <div className="game-primary">
+            {showPlayPanel ? (
+              <div className="game-primary">
               {roomState.game.status === "IN_PROGRESS" ? (
                 <>
                   {unpublishedRounds.length > 0 ? (
                     <p className="hint">Submit or discard the current round result before calling the next letter.</p>
-                ) : null}
-                <h3>Letters A-Z</h3>
-                <div className="letters-row" role="region" aria-label="letters-row">
-                  {LETTERS.map((entry) => {
-                    const isActiveLetter = activeRound?.calledNumber === entry.number;
-                    const isUsed = usedNumberSet.has(entry.number);
-                    return (
-                      <button
-                        key={entry.number}
-                        type="button"
-                        className={`letter-chip${isActiveLetter ? " letter-chip-active" : ""}${isUsed ? " letter-chip-used" : ""}`}
-                        onClick={() => onCallLetter(entry.number)}
-                        disabled={!canCallLetter || isUsed}
-                        aria-label={`letter-${entry.letter}`}
-                      >
-                        {entry.letter}
-                      </button>
-                    );
-                  })}
-                </div>
+                  ) : null}
 
-                <h3>Turn order</h3>
-                <ul className="pending-list">
-                  {roomState.game.turnOrder.map((id) => {
-                    const participant = participantsById.get(id);
-                    const isCurrent = id === currentTurnParticipantId;
-                    return (
-                      <li key={id} className="pending-item">
+                  {showLeaderboard && scoring ? (
+                    <div className="mobile-status-strip" aria-label="mobile-score-summary">
+                      <div className="mobile-status-timer">
+                        <p className="mobile-status-label">{sidebarTimer.label}</p>
+                        <p
+                          className={`mobile-status-value${
+                            activeRound?.endsAt && !showLetterModal && (timerSecondsLeft ?? 999) <= 5
+                              ? " mobile-status-value-danger"
+                              : ""
+                          }`}
+                        >
+                          {sidebarTimer.value}
+                        </p>
+                        <p className="mobile-status-hint">{sidebarTimer.hint}</p>
+                      </div>
+                      <div className="mobile-status-meta">
+                        <span>Published {scoring.publishedRounds}</span>
+                        <span>Pending {scoring.pendingPublicationRounds.length}</span>
                         <span>
-                          {participant?.name ?? id}
-                          {isCurrent ? " (current turn)" : ""}
+                          Leader{" "}
+                          {topLeaderboardEntry
+                            ? `${topLeaderboardEntry.participantName} · ${topLeaderboardEntry.totalScore}`
+                            : "No scores yet"}
                         </span>
-                      </li>
-                    );
-                  })}
-                </ul>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {!activeRound ? (
+                    <>
+                      <h3>Letters A-Z</h3>
+                      <div className="letters-row" role="region" aria-label="letters-row">
+                        {LETTERS.map((entry) => {
+                          const isUsed = usedNumberSet.has(entry.number);
+                          return (
+                            <button
+                              key={entry.number}
+                              type="button"
+                              className={`letter-chip${isUsed ? " letter-chip-used" : ""}`}
+                              onClick={() => onCallLetter(entry.number)}
+                              disabled={!canCallLetter || isUsed}
+                              aria-label={`letter-${entry.letter}`}
+                            >
+                              {entry.letter}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <h3>Turn order</h3>
+                      <ul className="pending-list">
+                        {roomState.game.turnOrder.map((id) => {
+                          const participant = participantsById.get(id);
+                          const isCurrent = id === currentTurnParticipantId;
+                          return (
+                            <li key={id} className="pending-item">
+                              <span>
+                                {participant?.name ?? id}
+                                {isCurrent ? " (current turn)" : ""}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  ) : null}
 
                 {!activeRound ? (
                   <>
@@ -1519,7 +1640,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
 
                       <div className="answers-grid answers-grid-body" role="row">
                         {ROUND_FIELDS.map((field) => (
-                          <label key={field.key} className="answers-cell" htmlFor={`answer-${field.key}`}>
+                          <label key={field.key} className="answers-cell" htmlFor={`answer-${field.key}`} data-field-label={field.label}>
                             <span className="sr-only">{field.label}</span>
                             <input
                               id={`answer-${field.key}`}
@@ -1583,7 +1704,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
 
                       <div className="answers-grid answers-grid-body" role="row">
                         {ROUND_FIELDS.map((field) => (
-                          <label key={field.key} className="answers-cell" htmlFor={`answer-${field.key}`}>
+                          <label key={field.key} className="answers-cell" htmlFor={`answer-${field.key}`} data-field-label={field.label}>
                             <span className="sr-only">{field.label}</span>
                             <input
                               id={`answer-${field.key}`}
@@ -1640,13 +1761,13 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                                 const reviewedMarks = submission.review?.marks ?? null;
                                 return (
                                   <tr key={submission.participantId}>
-                                    <td>{submission.participantName}</td>
+                                    <td data-label="Player">{submission.participantName}</td>
                                     {ROUND_FIELDS.map((field) => {
                                       const isReviewed = !!reviewedMarks;
                                       const isCorrect = reviewedMarks ? reviewedMarks[field.key as keyof RoundMarks] : false;
                                       const cellScore = submission.review ? submission.review.scores[field.key] : "-";
                                       return (
-                                        <td key={`${submission.participantId}:${field.key}`}>
+                                        <td key={`${submission.participantId}:${field.key}`} data-label={field.label}>
                                           <div className="mark-cell">
                                             <span className="answer-value">{submission.answers[field.key] || "(empty)"}</span>
                                             {canScoreSubmissions ? (
@@ -1682,7 +1803,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                                         </td>
                                       );
                                     })}
-                                    <td>{submission.review ? submission.review.scores.total : "-"}</td>
+                                    <td data-label="Total">{submission.review ? submission.review.scores.total : "-"}</td>
                                   </tr>
                                 );
                               })}
@@ -1724,9 +1845,11 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                 )}
                 </>
               ) : null}
-            </div>
+              </div>
+            ) : null}
 
-            <div className="game-details">
+            {showDetailsPanel ? (
+              <div className="game-details">
               <div className="game-details-head">
                 <h3>Game Details</h3>
                 <span className="status-chip">{roomState.game.status}</span>
@@ -1804,9 +1927,10 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                   {actionKey === "finish-game" ? "Ending game..." : "End game and show results"}
                 </button>
               ) : null}
-            </div>
+              </div>
+            ) : null}
 
-            {roomState.game.status === "FINISHED" ? (
+            {showScoresPanel && roomState.game.status === "FINISHED" ? (
               <div className="results-panel" aria-label="final-results-panel">
                 <h3>Final Results</h3>
                 {scoring && scoring.publishedRounds > 0 ? (
@@ -1822,10 +1946,10 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                     <tbody>
                       {scoring.leaderboard.map((entry, index) => (
                         <tr key={entry.participantId}>
-                          <td>{index + 1}</td>
-                          <td>{entry.participantName}</td>
-                          <td>{entry.totalScore}</td>
-                          <td>
+                          <td data-label="Rank">{index + 1}</td>
+                          <td data-label="Player">{entry.participantName}</td>
+                          <td data-label="Total">{entry.totalScore}</td>
+                          <td data-label="History">
                             {entry.history.length > 0
                               ? entry.history.map((item) => `R${item.roundNumber} ${item.activeLetter}:${item.score}`).join(" | ")
                               : "No rounds"}
@@ -1841,7 +1965,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
             ) : null}
           </div>
 
-          {showLeaderboard && scoring ? (
+          {showScoresPanel && showLeaderboard && scoring ? (
             <aside className="score-sidebar" aria-label="score-sidebar">
               <div className="sidebar-timer-card" aria-label="sidebar-timer">
                 <p className="sidebar-timer-label">{sidebarTimer.label}</p>
@@ -1862,21 +1986,26 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                   <span>Pending {scoring.pendingPublicationRounds.length}</span>
                 </p>
               </div>
-              {scoring.leaderboard.map((entry, index) => (
-                <div key={entry.participantId} className="score-player">
-                  <span className="score-player-rank">#{index + 1}</span>
-                  <div className="score-player-head">
-                    <span className="score-player-name">{entry.participantName}</span>
-                    <strong>{entry.totalScore}</strong>
+              <div className="score-sidebar-list">
+                {scoring.leaderboard.map((entry, index) => (
+                  <div key={entry.participantId} className="score-player">
+                    <span className="score-player-rank">#{index + 1}</span>
+                    <div className="score-player-head">
+                      <span className="score-player-name">{entry.participantName}</span>
+                      <strong>{entry.totalScore}</strong>
+                    </div>
+                    <p className="score-player-history">
+                      {entry.history.length > 0
+                        ? entry.history.map((item) => `R${item.roundNumber} ${item.activeLetter}:${item.score}`).join(" | ")
+                        : "No published rounds"}
+                    </p>
                   </div>
-                  <p className="score-player-history">
-                    {entry.history.length > 0 ? entry.history.map((item) => `R${item.roundNumber} ${item.activeLetter}:${item.score}`).join(" | ") : "No published rounds"}
-                  </p>
-                </div>
-              ))}
+                ))}
+              </div>
             </aside>
           ) : null}
-        </div>
+          </div>
+        </>
       ) : null}
 
       {showLetterModal && activeRound ? (
