@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Orbitron:wght@500;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap");
 
 :root {
   --background-dark: #05080a;
@@ -21,7 +21,8 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "DM Sans", ui-sans-serif, sans-serif;
+  font-family: "Manrope", ui-sans-serif, sans-serif;
+  line-height: 1.5;
   color: var(--ink);
   background-color: var(--background-dark);
   background-image:
@@ -114,7 +115,7 @@ h1,
 h2,
 h3 {
   margin-top: 0;
-  font-family: "Orbitron", "DM Sans", sans-serif;
+  font-family: "Sora", "Manrope", sans-serif;
   color: #fff;
 }
 
@@ -151,7 +152,7 @@ label {
 input,
 select,
 button {
-  border-radius: 999px;
+  border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   padding: 0.72rem 0.95rem;
   font-size: 0.98rem;
@@ -387,7 +388,7 @@ code {
 
 .sidebar-timer-value {
   margin: 0.28rem 0 0.16rem;
-  font-family: "Orbitron", "DM Sans", sans-serif;
+  font-family: "Sora", "Manrope", sans-serif;
   font-size: clamp(1.65rem, 3vw, 2.2rem);
   line-height: 1;
   letter-spacing: 0.06em;
@@ -536,7 +537,7 @@ code {
 
 .mobile-status-value {
   margin: 0.18rem 0 0.12rem;
-  font-family: "Orbitron", "DM Sans", sans-serif;
+  font-family: "Sora", "Manrope", sans-serif;
   font-size: 1.6rem;
   line-height: 1;
   color: #ddffe5;
@@ -667,6 +668,26 @@ code {
   gap: 0.42rem;
 }
 
+.active-round-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.3rem 0 0.85rem;
+}
+
+.active-round-chip {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 0.26rem 0.58rem;
+  font-size: 0.8rem;
+  color: #deebe4;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.active-round-chip strong {
+  color: #ffffff;
+}
+
 .letter-chip {
   border-radius: 12px;
   padding: 0.55rem 0;
@@ -726,6 +747,20 @@ code {
 
 .answers-cell input {
   width: 100%;
+}
+
+.answer-input {
+  min-height: 2.65rem;
+  border-radius: 12px;
+}
+
+.answers-submit-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.answers-submit-row button {
+  min-width: 11.5rem;
 }
 
 .results-stack {
@@ -870,7 +905,7 @@ code {
 
 .letter-modal-letter {
   margin: 0.2rem 0;
-  font-family: "Orbitron", "DM Sans", sans-serif;
+  font-family: "Sora", "Manrope", sans-serif;
   font-size: clamp(6rem, 24vw, 12rem);
   font-weight: 800;
   line-height: 1;
@@ -881,7 +916,7 @@ code {
 
 .letter-modal-count {
   margin: 0;
-  font-family: "Orbitron", "DM Sans", sans-serif;
+  font-family: "Sora", "Manrope", sans-serif;
   font-size: clamp(2rem, 10vw, 3.35rem);
   font-weight: 700;
   color: #f5faf7;
@@ -1056,6 +1091,15 @@ code {
 
   .answers-grid.answers-grid-body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .answers-submit-row {
+    justify-content: stretch;
+  }
+
+  .answers-submit-row button {
+    width: 100%;
+    min-width: 0;
   }
 
   .answers-grid-head {

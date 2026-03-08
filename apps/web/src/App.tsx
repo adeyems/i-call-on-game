@@ -890,6 +890,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
   const [actionKey, setActionKey] = useState<string | null>(null);
   const [roundAnswers, setRoundAnswers] = useState<RoundAnswerInput>(emptyRoundAnswers());
   const [nowEpoch, setNowEpoch] = useState(() => Date.now());
+  const [isDocumentVisible, setIsDocumentVisible] = useState(() => document.visibilityState !== "hidden");
   const [isCompactLayout, setIsCompactLayout] = useState(() => {
     if (typeof window.matchMedia === "function") {
       return window.matchMedia("(max-width: 980px)").matches;
@@ -1014,18 +1015,33 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
   }, [roomCode]);
 
   useEffect(() => {
+    const onVisibilityChange = () => {
+      setIsDocumentVisible(document.visibilityState !== "hidden");
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!roomState?.game.activeRound) {
+      return;
+    }
+
+    if (!isDocumentVisible) {
       return;
     }
 
     const timer = window.setInterval(() => {
       setNowEpoch(Date.now());
-    }, 500);
+    }, 1000);
 
     return () => {
       window.clearInterval(timer);
     };
-  }, [roomState?.game.activeRound]);
+  }, [isDocumentVisible, roomState?.game.activeRound]);
 
   useEffect(() => {
     if (typeof window.matchMedia === "function") {
@@ -1146,7 +1162,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
     };
   }, [activeRound, countdownSecondsLeft, showLetterModal, timerSecondsLeft]);
 
-  const shouldPlayTimerSong = !!activeRound && !!activeRound.endsAt && isRoundOpen;
+  const shouldPlayTimerSong = !!activeRound && !!activeRound.endsAt && isRoundOpen && isDocumentVisible;
 
   useEffect(() => {
     activeCallerIdRef.current = activeRound?.turnParticipantId ?? null;
@@ -1670,6 +1686,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                             <span className="sr-only">{field.label}</span>
                             <input
                               id={`answer-${field.key}`}
+                              className="answer-input"
                               value={roundAnswers[field.key]}
                               onChange={(event) =>
                                 setRoundAnswers((prev) => ({
@@ -1685,37 +1702,30 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                         ))}
                       </div>
 
-                      <button type="submit" disabled>
-                        Submit answers
-                      </button>
+                      <div className="answers-submit-row">
+                        <button type="submit" disabled>
+                          Submit answers
+                        </button>
+                      </div>
                     </form>
 
                     <p className="hint">Fields are read-only until a letter is picked and countdown ends.</p>
                   </>
                 ) : (
                   <>
-                    <div className="board-placeholder" role="region" aria-label="active-round-status">
-                      <p>
-                        Round <strong>{activeRound.roundNumber}</strong> | Caller: <strong>{activeRound.turnParticipantName}</strong>
-                      </p>
-                      <p>
-                        Active letter: <strong>{activeRound.activeLetter}</strong> ({activeRound.calledNumber})
-                      </p>
-                      <p>
-                        Countdown: <strong>{showLetterModal ? `${countdownSecondsLeft}s` : "Started"}</strong>
-                      </p>
-                      <p>
-                        Timer: <strong>{timerSecondsLeft !== null ? `${timerSecondsLeft}s` : "No timer"}</strong>
-                      </p>
-                      <p>
-                        Submissions: <strong>{activeRound.submissions.length}</strong> / {roomState.counts.admitted}
-                      </p>
-
-                      {canEndRoundEarly ? (
-                        <button type="button" onClick={onEndRound} disabled={!canEndRoundEarly}>
-                          {endingRound ? "Ending round..." : "End round and submit all"}
-                        </button>
-                      ) : null}
+                    <div className="active-round-head" role="region" aria-label="active-round-summary">
+                      <span className="active-round-chip">
+                        Round <strong>{activeRound.roundNumber}</strong>
+                      </span>
+                      <span className="active-round-chip">
+                        Letter <strong>{activeRound.activeLetter}</strong>
+                      </span>
+                      <span className="active-round-chip">
+                        Caller <strong>{activeRound.turnParticipantName}</strong>
+                      </span>
+                      <span className="active-round-chip">
+                        Submissions <strong>{activeRound.submissions.length}</strong> / {roomState.counts.admitted}
+                      </span>
                     </div>
 
                     <h3>Answer columns</h3>
@@ -1734,6 +1744,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                             <span className="sr-only">{field.label}</span>
                             <input
                               id={`answer-${field.key}`}
+                              className="answer-input"
                               value={roundAnswers[field.key]}
                               onChange={(event) =>
                                 setRoundAnswers((prev) => ({
@@ -1749,14 +1760,31 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                         ))}
                       </div>
 
-                      <button type="submit" disabled={!canSubmitAnswers}>
-                        {submitting ? "Submitting..." : alreadySubmitted ? "Already submitted" : "Submit answers"}
-                      </button>
+                      <div className="answers-submit-row">
+                        <button type="submit" disabled={!canSubmitAnswers}>
+                          {submitting ? "Submitting..." : alreadySubmitted ? "Already submitted" : "Submit answers"}
+                        </button>
+                      </div>
                     </form>
 
                     {!isRoundOpen ? <p className="hint">Fields are read-only until countdown ends.</p> : null}
                     {isRoundOpen && !alreadySubmitted ? <p className="hint">Draft auto-saves locally while you type.</p> : null}
                     {alreadySubmitted ? <p className="success">Your submission has been recorded for this round.</p> : null}
+
+                    <div className="board-placeholder" role="region" aria-label="active-round-status">
+                      <p>
+                        Countdown: <strong>{showLetterModal ? `${countdownSecondsLeft}s` : "Started"}</strong>
+                      </p>
+                      <p>
+                        Timer: <strong>{timerSecondsLeft !== null ? `${timerSecondsLeft}s` : "No timer"}</strong>
+                      </p>
+
+                      {canEndRoundEarly ? (
+                        <button type="button" onClick={onEndRound} disabled={!canEndRoundEarly}>
+                          {endingRound ? "Ending round..." : "End round and submit all"}
+                        </button>
+                      ) : null}
+                    </div>
                   </>
                 )}
 
@@ -2069,29 +2097,32 @@ export default function App() {
 
   const joinRoomCode = parseJoinRoomCode(pathname);
   const gameRoomCode = parseGameRoomCode(pathname);
+  const showAmbientBubbles = !gameRoomCode;
 
   const onNavigate = (path: string) => navigate(path, setPathname);
 
   return (
     <main className="page">
-      <div className="bubble-layer" aria-hidden="true">
-        {bubbleSeeds.map((seed) => (
-          <span
-            key={seed}
-            className="bubble"
-            style={
-              {
-                "--bubble-left": `${(seed * 17) % 100}%`,
-                "--bubble-size": `${24 + ((seed * 13) % 68)}px`,
-                "--bubble-delay": `${(seed * 0.45).toFixed(2)}s`,
-                "--bubble-duration": `${8 + ((seed * 7) % 11)}s`,
-                "--bubble-drift": `${-24 + ((seed * 9) % 48)}px`,
-                "--bubble-opacity": `${0.14 + ((seed * 5) % 10) / 100}`
-              } as CSSProperties
-            }
-          />
-        ))}
-      </div>
+      {showAmbientBubbles ? (
+        <div className="bubble-layer" aria-hidden="true">
+          {bubbleSeeds.map((seed) => (
+            <span
+              key={seed}
+              className="bubble"
+              style={
+                {
+                  "--bubble-left": `${(seed * 17) % 100}%`,
+                  "--bubble-size": `${24 + ((seed * 13) % 68)}px`,
+                  "--bubble-delay": `${(seed * 0.45).toFixed(2)}s`,
+                  "--bubble-duration": `${8 + ((seed * 7) % 11)}s`,
+                  "--bubble-drift": `${-24 + ((seed * 9) % 48)}px`,
+                  "--bubble-opacity": `${0.14 + ((seed * 5) % 10) / 100}`
+                } as CSSProperties
+              }
+            />
+          ))}
+        </div>
+      ) : null}
       {gameRoomCode ? <GameBoardCard roomCode={gameRoomCode} onNavigate={onNavigate} /> : null}
       {!gameRoomCode && joinRoomCode ? <JoinRoomCard roomCode={joinRoomCode} onNavigate={onNavigate} /> : null}
       {!gameRoomCode && !joinRoomCode ? <HostCreateCard onNavigate={onNavigate} /> : null}

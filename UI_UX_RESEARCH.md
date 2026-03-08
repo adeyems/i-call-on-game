@@ -52,3 +52,27 @@ Date: 2026-02-25
 - Reworked results tables for smaller screens by using per-cell labels and stacked card-like rows.
 - Converted mobile leaderboard cards to horizontal swipe tiles for faster scanning.
 - Increased touch target sizing on coarse pointers for action buttons and mark controls.
+
+## Mobile-first UX refresh (round input priority)
+
+Date: 2026-03-07
+
+### Sources reviewed
+- web.dev responsive design patterns: https://web.dev/patterns/layout/
+- web.dev card and form pattern guidance: https://web.dev/patterns/forms
+- web.dev reducing layout shifts and maintaining stability: https://web.dev/articles/optimize-cls
+- Nielsen Norman Group on visual hierarchy and scanning behavior: https://www.nngroup.com/articles/visual-hierarchy-ux-definition/
+- WCAG 2.2 target size minimum: https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum
+
+### Key findings
+- The primary in-round task is answer entry; timer/details are support context and should not dominate the viewport.
+- On compact screens, persistent multi-column metadata competes with form completion and hurts completion speed.
+- Small touch controls and tightly packed input actions increase error rates under time pressure.
+- Visual grouping (chips + short status blocks) improves scanability more than long stacked paragraphs.
+
+### Applied changes in this project
+- Reordered active round layout so answer input appears before secondary status text.
+- Added compact active-round summary chips (round, letter, caller, submissions) above answer form.
+- Added dedicated submit row behavior that expands to full width on mobile breakpoints.
+- Refined input density and minimum control sizes for better thumb interaction.
+- Updated typography pairing for better readability and stronger heading contrast (`Sora` + `Manrope`).
