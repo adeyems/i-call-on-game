@@ -1778,6 +1778,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                               aria-label={`letter-${entry.letter}`}
                             >
                               {entry.letter}
+                              <span className="letter-chip-sub">{entry.number}</span>
                             </button>
                           );
                         })}
@@ -1789,7 +1790,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                           const participant = participantsById.get(id);
                           const isCurrent = id === currentTurnParticipantId;
                           return (
-                            <li key={id} className="pending-item">
+                            <li key={id} className={`pending-item${isCurrent ? " pending-item-current" : ""}`}>
                               <span>
                                 {participant?.name ?? id}
                                 {isCurrent ? " (current turn)" : ""}
@@ -2172,11 +2173,20 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
 
           {showScoresPanel && showLeaderboard && scoring ? (
             <aside className="score-sidebar" aria-label="score-sidebar">
-              <div className="sidebar-timer-card" aria-label="sidebar-timer">
+              <div
+                className={`sidebar-timer-card${
+                  activeRound?.endsAt && !showLetterModal && (timerSecondsLeft ?? 999) <= 5 ? " sidebar-timer-card-urgent" : ""
+                }`}
+                aria-label="sidebar-timer"
+              >
                 <p className="sidebar-timer-label">{sidebarTimer.label}</p>
                 <p
                   className={`sidebar-timer-value${
-                    activeRound?.endsAt && !showLetterModal && (timerSecondsLeft ?? 999) <= 5 ? " sidebar-timer-value-danger" : ""
+                    activeRound?.endsAt && !showLetterModal && (timerSecondsLeft ?? 999) <= 5
+                      ? " sidebar-timer-value-danger"
+                      : activeRound?.endsAt && !showLetterModal && (timerSecondsLeft ?? 999) <= 10
+                        ? " sidebar-timer-value-warning"
+                        : ""
                   }`}
                 >
                   {sidebarTimer.value}
@@ -2192,13 +2202,21 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                 </p>
               </div>
               <div className="score-sidebar-list">
-                {scoring.leaderboard.map((entry, index) => (
-                  <div key={entry.participantId} className="score-player">
+                {scoring.leaderboard.map((entry, index) => {
+                  const rankClass =
+                    index === 0 ? " score-player-rank-1" : index === 1 ? " score-player-rank-2" : index === 2 ? " score-player-rank-3" : "";
+                  const isMe = entry.participantId === participantId;
+                  return (
+                  <div
+                    key={entry.participantId}
+                    className={`score-player${isMe ? " score-player-me" : ""}`}
+                    style={{ animationDelay: `${index * 60}ms` }}
+                  >
                     <div className="score-player-head">
                       <div className="score-player-identity">
-                        <span className="score-player-rank">#{index + 1}</span>
+                        <span className={`score-player-rank${rankClass}`}>#{index + 1}</span>
                         <span className="score-player-name" title={entry.participantName}>
-                          {entry.participantName}
+                          {entry.participantName}{isMe ? " (you)" : ""}
                         </span>
                       </div>
                       <strong className="score-player-total">{entry.totalScore}</strong>
@@ -2209,7 +2227,8 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                         : "No published rounds"}
                     </p>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </aside>
           ) : null}
