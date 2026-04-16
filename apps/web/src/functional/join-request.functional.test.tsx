@@ -254,7 +254,7 @@ describe("functional: participant join request", () => {
         expect(screen.getByRole("heading", { name: /Join Room/i })).toBeInTheDocument();
       });
 
-      expect(screen.getByText(/Join link has expired/i)).toBeInTheDocument();
+      expect(screen.getByText(/closed by the host/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Request to join/i })).toBeDisabled();
       expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {

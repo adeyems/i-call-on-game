@@ -893,19 +893,51 @@ export function createJoinRequest(
 ): JoinMutationResult {
   const name = normalizeName(rawName);
 
+  if (state.game.status === "IN_PROGRESS") {
+    return {
+      ok: false,
+      status: 410,
+      error: "This game is already in progress. Ask the host for the next game!"
+    };
+  }
+
+  if (state.game.status === "FINISHED") {
+    return {
+      ok: false,
+      status: 410,
+      error: "This game has already ended."
+    };
+  }
+
+  if (state.game.status === "CANCELLED") {
+    return {
+      ok: false,
+      status: 410,
+      error: "This room has been closed by the host."
+    };
+  }
+
   if (state.game.status !== "LOBBY") {
     return {
       ok: false,
       status: 410,
-      error: "join link has expired for this room"
+      error: "This room is no longer accepting players."
     };
   }
 
-  if (name.length < MIN_NAME_LENGTH || name.length > MAX_NAME_LENGTH) {
+  if (!name || name.length < MIN_NAME_LENGTH) {
     return {
       ok: false,
       status: 400,
-      error: `name must be between ${MIN_NAME_LENGTH} and ${MAX_NAME_LENGTH} characters`
+      error: "Please enter a name (at least 2 characters)."
+    };
+  }
+
+  if (name.length > MAX_NAME_LENGTH) {
+    return {
+      ok: false,
+      status: 400,
+      error: `Name is too long (max ${MAX_NAME_LENGTH} characters).`
     };
   }
 
@@ -913,7 +945,7 @@ export function createJoinRequest(
     return {
       ok: false,
       status: 409,
-      error: "Someone with this name is already in the room. Please pick a different name."
+      error: `The name "${name}" is already taken in this room. Pick a different name!`
     };
   }
 
@@ -922,7 +954,7 @@ export function createJoinRequest(
     return {
       ok: false,
       status: 409,
-      error: "room is full"
+      error: `Room is full (${state.meta.maxParticipants}/${state.meta.maxParticipants} players).`
     };
   }
 
@@ -991,7 +1023,7 @@ export function resolveJoinRequest(
       return {
         ok: false,
         status: 409,
-        error: "room is full"
+        error: `Room is full (${state.meta.maxParticipants}/${state.meta.maxParticipants} players).`
       };
     }
   }

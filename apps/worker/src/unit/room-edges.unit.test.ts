@@ -182,14 +182,14 @@ async function initRoom(room: GameRoom, payload?: Partial<RoomInitPayload>): Pro
 describe("unit: room edge behavior", () => {
   it("covers create/join/resolve/start guards", () => {
     const shortName = createJoinRequest(createLobbyState(), "A");
-    expectError(shortName, 400, "name must be between");
+    expectError(shortName, 400, "enter a name");
 
     const fullLobby = createJoinRequest(createLobbyState(1), "Ben");
-    expectError(fullLobby, 409, "room is full");
+    expectError(fullLobby, 409, "Room is full");
 
     const started = createStartedState();
     const joinExpired = createJoinRequest(started, "Kai");
-    expectError(joinExpired, 410, "join link has expired");
+    expectError(joinExpired, 410, "already in progress");
 
     const pendingState: StoredRoomState = {
       ...createLobbyState(),
@@ -229,7 +229,7 @@ describe("unit: room edge behavior", () => {
         }
       ]
     };
-    expectError(resolveJoinRequest(fullApprovalState, "req-full", true), 409, "room is full");
+    expectError(resolveJoinRequest(fullApprovalState, "req-full", true), 409, "Room is full");
 
     const ready = withAdmittedPlayer(createLobbyState());
     expectError(startGame(ready, "host-token", { roundSeconds: 4 }), 400, "roundSeconds");

@@ -762,7 +762,7 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
               <p>
                 Pending requests: <strong>{roomState.counts.pending}</strong>
               </p>
-              {roomState.game.status !== "LOBBY" ? <p className="hint">Join link is expired for this room.</p> : null}
+              {roomState.game.status !== "LOBBY" ? <p className="hint">This room is no longer accepting new players.</p> : null}
 
               {pendingParticipants.length > 0 ? (
                 <ul className="pending-list">
@@ -830,7 +830,7 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
                 {actionLoadingKey === "cancel-game" ? "Expiring..." : "Expire link"}
               </button>
               {roomState.game.status === "CANCELLED" ? (
-                <p className="error">Game cancelled. Join link has expired and no new players can enter.</p>
+                <p className="error">Room disbanded. Join link has expired and no new players can enter.</p>
               ) : null}
             </>
           ) : (
@@ -915,24 +915,24 @@ function JoinRoomCard({ roomCode, onNavigate }: { roomCode: string; onNavigate: 
         }
 
         if (payload.participant.status === "REJECTED") {
-          setError("The host denied your join request. Try a different room or ask the host.");
+          setError("The host declined your request to join. Try a different room or ask the host to let you in.");
           setJoinResult(null);
           requestIdRef.current = null;
         }
       }
 
       if (payload.type === "participant_removed" && requestIdRef.current && payload.participant.id === requestIdRef.current) {
-        setError("The host removed you from the room.");
+        setError("You have been removed from the game by the host.");
         setJoinResult(null);
         requestIdRef.current = null;
       }
 
       if (payload.type === "game_cancelled") {
-        setError("This room has been cancelled by the host. Join link has expired.");
+        setError("The host has disbanded the game. This room is now closed.");
       }
 
       if (payload.type === "game_ended") {
-        setError("Game has ended. Join link is expired.");
+        setError("This game has already ended.");
       }
 
       if (payload.type === "turn_called") {
@@ -1021,8 +1021,12 @@ function JoinRoomCard({ roomCode, onNavigate }: { roomCode: string; onNavigate: 
         </button>
       </form>
 
-      {roomState && roomState.game.status !== "LOBBY" ? (
-        <p className="error">Join link has expired for this room.</p>
+      {roomState && roomState.game.status === "IN_PROGRESS" ? (
+        <p className="error">This game is already in progress. Ask the host for the next game!</p>
+      ) : roomState && roomState.game.status === "FINISHED" ? (
+        <p className="error">This game has already ended.</p>
+      ) : roomState && roomState.game.status === "CANCELLED" ? (
+        <p className="error">This room has been closed by the host.</p>
       ) : null}
 
       {joinResult ? (
@@ -1170,13 +1174,13 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
       if (payload.type === "game_cancelled") {
         stopRoundTimerSong();
         playNotificationSound();
-        setError("Game cancelled by host. This room is now closed.");
+        setError("The host has disbanded the game. This room is now closed.");
       }
 
       if (payload.type === "game_ended") {
         stopRoundTimerSong();
         playNotificationSound();
-        setError("Game ended by host. Final results are now available.");
+        setError("Game over! Final results are now available.");
       }
     };
 
@@ -2178,7 +2182,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
 
               {roomState.game.status === "LOBBY" ? <p className="hint">Waiting for host to start the game.</p> : null}
               {roomState.game.status === "CANCELLED" ? (
-                <p className="error">Game cancelled by host. This room is closed and the join link is expired.</p>
+                <p className="error">The host has disbanded the game. This room is now closed.</p>
               ) : null}
               {roomState.game.status === "FINISHED" ? (
                 <p className="success">Game ended. Final leaderboard is locked.</p>

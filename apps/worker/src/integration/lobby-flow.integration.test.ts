@@ -765,7 +765,7 @@ describe("integration: lobby and round lifecycle routes", () => {
 
     expect(joinResponse.status).toBe(410);
     await expect(joinResponse.json()).resolves.toEqual({
-      error: "join link has expired for this room"
+      error: "This room has been closed by the host."
     });
   });
 

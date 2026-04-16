@@ -411,7 +411,7 @@ describe("functional: host lifecycle", () => {
       await user.click(screen.getByRole("button", { name: /Expire link/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/Game cancelled. Join link has expired/i)).toBeInTheDocument();
+        expect(screen.getByText(/Room disbanded.*expired/i)).toBeInTheDocument();
       });
 
       expect(fetchMock).toHaveBeenCalledTimes(3);

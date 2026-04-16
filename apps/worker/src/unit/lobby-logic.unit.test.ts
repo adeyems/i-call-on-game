@@ -100,7 +100,7 @@ describe("unit: lobby state logic", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(409);
-      expect(result.error).toBe("Someone with this name is already in the room. Please pick a different name.");
+      expect(result.error).toContain("is already taken in this room");
     }
   });
 
@@ -348,7 +348,7 @@ describe("unit: lobby state logic", () => {
     expect(joinAfterCancel.ok).toBe(false);
     if (!joinAfterCancel.ok) {
       expect(joinAfterCancel.status).toBe(410);
-      expect(joinAfterCancel.error).toBe("join link has expired for this room");
+      expect(joinAfterCancel.error).toContain("closed by the host");
     }
   });
 });
