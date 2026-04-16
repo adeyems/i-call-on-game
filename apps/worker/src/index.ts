@@ -65,6 +65,10 @@ type RoomRoute =
   | {
       type: "finish";
       roomCode: string;
+    }
+  | {
+      type: "remove";
+      roomCode: string;
     };
 
 function json(data: unknown, status = 200, headers: HeadersInit = {}): Response {
@@ -199,6 +203,13 @@ export function parseRoomRoute(pathname: string): RoomRoute | null {
     };
   }
 
+  if (segments.length === 4 && segments[3] === "remove") {
+    return {
+      type: "remove",
+      roomCode
+    };
+  }
+
   return null;
 }
 
@@ -250,7 +261,8 @@ async function proxyJsonRequest(
     | "/publish"
     | "/discard"
     | "/cancel"
-    | "/finish",
+    | "/finish"
+    | "/remove",
   body?: unknown
 ): Promise<Response> {
   const init: RequestInit = {
@@ -531,6 +543,21 @@ export function createWorkerHandler() {
             hostToken?: string;
           };
           const upstream = await proxyJsonRequest(stub, "POST", "/finish", payload);
+          return new Response(upstream.body, {
+            status: upstream.status,
+            headers: {
+              ...headers,
+              "Content-Type": "application/json"
+            }
+          });
+        }
+
+        if (roomRoute.type === "remove" && request.method === "POST") {
+          const payload = (await request.json().catch(() => ({}))) as {
+            hostToken?: string;
+            participantId?: string;
+          };
+          const upstream = await proxyJsonRequest(stub, "POST", "/remove", payload);
           return new Response(upstream.body, {
             status: upstream.status,
             headers: {

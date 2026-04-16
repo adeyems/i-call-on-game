@@ -913,7 +913,7 @@ export function createJoinRequest(
     return {
       ok: false,
       status: 409,
-      error: "name already exists in this room"
+      error: "Someone with this name is already in the room. Please pick a different name."
     };
   }
 
@@ -1012,6 +1012,51 @@ export function resolveJoinRequest(
     nextState: {
       ...state,
       participants: nextParticipants
+    }
+  };
+}
+
+export function removeParticipant(
+  state: StoredRoomState,
+  hostToken: string,
+  participantId: string,
+  nowIso = new Date().toISOString()
+): AdmitMutationResult {
+  if (!isHostTokenValid(state, hostToken)) {
+    return { ok: false, status: 403, error: "invalid host token" };
+  }
+
+  if (state.game.status !== "LOBBY") {
+    return { ok: false, status: 409, error: "cannot remove participants after game has started" };
+  }
+
+  const target = state.participants.find((participant) => participant.id === participantId);
+  if (!target) {
+    return { ok: false, status: 404, error: "participant not found" };
+  }
+
+  if (target.isHost) {
+    return { ok: false, status: 403, error: "cannot remove the host" };
+  }
+
+  if (target.status !== "ADMITTED" && target.status !== "PENDING") {
+    return { ok: false, status: 409, error: "participant is already removed" };
+  }
+
+  const removedParticipant: Participant = {
+    ...target,
+    status: "REJECTED",
+    updatedAt: nowIso
+  };
+
+  return {
+    ok: true,
+    participant: removedParticipant,
+    nextState: {
+      ...state,
+      participants: state.participants.map((participant) =>
+        participant.id === participantId ? removedParticipant : participant
+      )
     }
   };
 }
@@ -2052,6 +2097,36 @@ export class GameRoom implements DurableObject {
       const snapshot = buildSnapshot(result.nextState);
       this.broadcast({ type: "admission_update", participant: result.participant, snapshot });
 
+      return json(snapshot);
+    }
+
+    if (request.method === "POST" && url.pathname.endsWith("/remove")) {
+      const currentState = await this.readRoomState();
+      if (!currentState) {
+        return json({ error: "room not found" }, 404);
+      }
+
+      const payload = (await request.json().catch(() => ({}))) as {
+        hostToken?: string;
+        participantId?: string;
+      };
+
+      if (!payload.hostToken) {
+        return json({ error: "hostToken is required" }, 400);
+      }
+
+      if (!payload.participantId) {
+        return json({ error: "participantId is required" }, 400);
+      }
+
+      const result = removeParticipant(currentState, payload.hostToken, payload.participantId);
+      if (!result.ok) {
+        return json({ error: result.error }, result.status);
+      }
+
+      await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
+      const snapshot = buildSnapshot(result.nextState);
+      this.broadcast({ type: "participant_removed", participant: result.participant, snapshot });
       return json(snapshot);
     }
 

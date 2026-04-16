@@ -100,7 +100,7 @@ describe("unit: lobby state logic", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(409);
-      expect(result.error).toBe("name already exists in this room");
+      expect(result.error).toBe("Someone with this name is already in the room. Please pick a different name.");
     }
   });
 

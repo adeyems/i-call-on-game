@@ -230,6 +230,11 @@ export type RoomSocketEvent =
       snapshot: RoomStateResponse;
     }
   | {
+      type: "participant_removed";
+      participant: RoomParticipant;
+      snapshot: RoomStateResponse;
+    }
+  | {
       type: "host_transferred";
       snapshot?: RoomStateResponse;
       hostToken?: string;
@@ -493,6 +498,27 @@ export async function cancelGameRoom(roomCode: string, hostToken: string): Promi
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ hostToken })
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  return (await response.json()) as RoomStateResponse;
+}
+
+export async function removeParticipant(
+  roomCode: string,
+  hostToken: string,
+  participantId: string
+): Promise<RoomStateResponse> {
+  const normalizedCode = roomCode.trim().toUpperCase();
+  const response = await fetch(`${API_BASE_URL}/api/rooms/${normalizedCode}/remove`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ hostToken, participantId })
   });
 
   if (!response.ok) {

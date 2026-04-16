@@ -11,6 +11,7 @@ import {
   reviewJoinRequest,
   scoreRoundSubmission,
   publishRoundScores,
+  removeParticipant,
   startGame,
   submitJoinRequest,
   submitRoundAnswers,
@@ -362,6 +363,7 @@ function snapshotFromEvent(event: RoomSocketEvent): RoomStateResponse | null {
     event.type === "snapshot" ||
     event.type === "join_request" ||
     event.type === "admission_update" ||
+    event.type === "participant_removed" ||
     event.type === "game_started" ||
     event.type === "turn_called" ||
     event.type === "submission_received" ||
@@ -469,6 +471,11 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
     [roomState]
   );
 
+  const admittedParticipants = useMemo(
+    () => roomState?.participants.filter((participant) => participant.status === "ADMITTED" && !participant.isHost) ?? [],
+    [roomState]
+  );
+
   const canStartGame =
     !!roomState && roomState.game.status === "LOBBY" && pendingParticipants.length === 0 && roomState.counts.admitted >= 2;
   const canCancelGame = !!roomState && roomState.game.status === "LOBBY";
@@ -545,6 +552,25 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
       setRoomState(nextState);
     } catch (reviewError) {
       setError(reviewError instanceof Error ? reviewError.message : "Unable to process admission action");
+    } finally {
+      setActionLoadingKey(null);
+    }
+  };
+
+  const onRemoveParticipant = async (participantId: string) => {
+    if (!room) {
+      return;
+    }
+
+    const actionKey = `${participantId}:remove`;
+    setActionLoadingKey(actionKey);
+    setError(null);
+
+    try {
+      const nextState = await removeParticipant(room.roomCode, room.hostToken, participantId);
+      setRoomState(nextState);
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : "Unable to remove participant");
     } finally {
       setActionLoadingKey(null);
     }
@@ -770,6 +796,32 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
                 <p className="hint">No pending join requests.</p>
               )}
 
+              {admittedParticipants.length > 0 && roomState.game.status === "LOBBY" ? (
+                <>
+                  <h3>Admitted players</h3>
+                  <ul className="pending-list">
+                    {admittedParticipants.map((participant) => {
+                      const removeKey = `${participant.id}:remove`;
+                      return (
+                        <li key={participant.id} className="pending-item">
+                          <span>{participant.name}</span>
+                          <div className="row-actions">
+                            <button
+                              type="button"
+                              className="secondary-btn"
+                              onClick={() => onRemoveParticipant(participant.id)}
+                              disabled={!!actionLoadingKey}
+                            >
+                              {actionLoadingKey === removeKey ? "Removing..." : "Remove"}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : null}
+
               <button type="button" onClick={onStartGame} disabled={!canStartGame || !!actionLoadingKey}>
                 {actionLoadingKey === "start-game" ? "Starting..." : "Start game"}
               </button>
@@ -863,8 +915,16 @@ function JoinRoomCard({ roomCode, onNavigate }: { roomCode: string; onNavigate: 
         }
 
         if (payload.participant.status === "REJECTED") {
-          setError("Join request was rejected by host.");
+          setError("The host denied your join request. Try a different room or ask the host.");
+          setJoinResult(null);
+          requestIdRef.current = null;
         }
+      }
+
+      if (payload.type === "participant_removed" && requestIdRef.current && payload.participant.id === requestIdRef.current) {
+        setError("The host removed you from the room.");
+        setJoinResult(null);
+        requestIdRef.current = null;
       }
 
       if (payload.type === "game_cancelled") {
