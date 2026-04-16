@@ -330,7 +330,8 @@ describe("functional: host lifecycle", () => {
           roundSeconds: 20,
           endRule: "TIMER",
           manualEndPolicy: "HOST_OR_CALLER",
-          scoringMode: "FIXED_10"
+          scoringMode: "FIXED_10",
+          letterPickSeconds: null
         }
       });
 

@@ -53,7 +53,8 @@ describe("unit: lobby state logic", () => {
       roundSeconds: 20,
       endRule: "WHICHEVER_FIRST",
       manualEndPolicy: "HOST_OR_CALLER",
-      scoringMode: "FIXED_10"
+      scoringMode: "FIXED_10",
+      letterPickSeconds: null
     });
   });
 
@@ -222,7 +223,8 @@ describe("unit: lobby state logic", () => {
           roundSeconds: 25,
           endRule: "TIMER",
           manualEndPolicy: "HOST_OR_CALLER",
-          scoringMode: "FIXED_10"
+          scoringMode: "FIXED_10",
+      letterPickSeconds: null
         }
       });
       expect(startResult.nextState.game.turnOrder).toEqual(["host", "p-1"]);
@@ -302,12 +304,14 @@ describe("unit: lobby state logic", () => {
           roundSeconds: 20,
           endRule: "WHICHEVER_FIRST",
           manualEndPolicy: "HOST_OR_CALLER",
-          scoringMode: "FIXED_10"
+          scoringMode: "FIXED_10",
+      letterPickSeconds: null
         },
         turnOrder: ["host"],
         currentTurnIndex: 0,
         activeRound: null,
-        completedRounds: []
+        completedRounds: [],
+        letterPickDeadline: null
       }
     };
 

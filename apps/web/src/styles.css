@@ -922,6 +922,113 @@ code {
   color: #f5faf7;
 }
 
+/* How to Play rules */
+
+.rules-card {
+  margin-top: 1.25rem;
+}
+
+.rules-heading {
+  margin-bottom: 0.25rem;
+  font-size: clamp(1.35rem, 2.8vw, 1.8rem);
+}
+
+.rules-intro {
+  margin: 0 0 1.35rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.rules-steps {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.rules-step {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 0.85rem 0.95rem;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.008));
+  transition: border-color 200ms ease, background 200ms ease;
+}
+
+.rules-step:hover {
+  border-color: rgba(70, 236, 19, 0.22);
+  background: linear-gradient(140deg, rgba(70, 236, 19, 0.04), rgba(255, 255, 255, 0.01));
+}
+
+.rules-step-number {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 12px;
+  border: 1px solid rgba(70, 236, 19, 0.35);
+  background: linear-gradient(140deg, rgba(70, 236, 19, 0.14), rgba(70, 236, 19, 0.06));
+  font-family: "Sora", "Manrope", sans-serif;
+  font-weight: 800;
+  font-size: 0.88rem;
+  color: var(--primary);
+}
+
+.rules-step-body {
+  min-width: 0;
+}
+
+.rules-step-title {
+  margin: 0 0 0.18rem;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.rules-step-desc {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: #a8b9b0;
+}
+
+.rules-categories {
+  margin-top: 1.15rem;
+  border: 1px solid rgba(70, 236, 19, 0.18);
+  border-radius: 14px;
+  padding: 0.78rem 0.9rem;
+  background:
+    radial-gradient(circle at 0% 50%, rgba(70, 236, 19, 0.08), transparent 50%),
+    linear-gradient(150deg, rgba(10, 22, 13, 0.7), rgba(8, 14, 11, 0.6));
+}
+
+.rules-category-label {
+  display: block;
+  margin-bottom: 0.52rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9eb4a8;
+}
+
+.rules-category-chips {
+  display: flex;
+  gap: 0.42rem;
+  flex-wrap: wrap;
+}
+
+.rules-category-chip {
+  border: 1px solid rgba(70, 236, 19, 0.3);
+  border-radius: 999px;
+  padding: 0.3rem 0.72rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #c8f5b8;
+  background: rgba(70, 236, 19, 0.08);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1111,6 +1218,14 @@ code {
     font-size: 0.79rem;
     font-weight: 700;
     color: #c6d8cf;
+  }
+
+  .rules-card {
+    margin-top: 0.85rem;
+  }
+
+  .rules-step {
+    padding: 0.72rem 0.78rem;
   }
 }
 

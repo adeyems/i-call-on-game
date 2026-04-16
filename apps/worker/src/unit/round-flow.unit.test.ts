@@ -132,12 +132,14 @@ function createStateAtFairRoundLimit(): StoredRoomState {
         roundSeconds: 12,
         endRule: "TIMER",
         manualEndPolicy: "HOST_OR_CALLER",
-        scoringMode: "FIXED_10"
+        scoringMode: "FIXED_10",
+        letterPickSeconds: null
       },
       turnOrder,
       currentTurnIndex: 0,
       activeRound: null,
-      completedRounds
+      completedRounds,
+      letterPickDeadline: null
     }
   };
 }

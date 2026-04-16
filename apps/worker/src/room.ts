@@ -89,6 +89,7 @@ export interface GameConfig {
   endRule: RoundEndRule;
   manualEndPolicy: ManualEndPolicy;
   scoringMode: ScoringMode;
+  letterPickSeconds: number | null;
 }
 
 export interface GameState {
@@ -101,6 +102,7 @@ export interface GameState {
   currentTurnIndex: number;
   activeRound: ActiveRoundState | null;
   completedRounds: CompletedRoundState[];
+  letterPickDeadline: string | null;
 }
 
 export interface StoredRoomState {
@@ -191,6 +193,7 @@ export interface RoomSnapshot {
     activeRound: ActiveRoundSnapshot | null;
     completedRounds: CompletedRoundSnapshot[];
     scoring: ScoringSummary;
+    letterPickDeadline: string | null;
   };
 }
 
@@ -199,6 +202,7 @@ export interface StartGameInput {
   endRule?: RoundEndRule;
   manualEndPolicy?: ManualEndPolicy;
   scoringMode?: ScoringMode;
+  letterPickSeconds?: number | null;
 }
 
 type RoomMutationFailure = {
@@ -444,6 +448,15 @@ function usedNumbers(state: StoredRoomState): number[] {
   }
 
   return Array.from(used).sort((left, right) => left - right);
+}
+
+function randomUnusedNumber(state: StoredRoomState): number | null {
+  const used = new Set(usedNumbers(state));
+  const available = Array.from({ length: 26 }, (_, index) => index + 1).filter((number) => !used.has(number));
+  if (available.length === 0) {
+    return null;
+  }
+  return available[Math.floor(Math.random() * available.length)];
 }
 
 function scoringLimits(state: StoredRoomState): { admittedCount: number; roundsPerPlayer: number; maxRounds: number } {
@@ -787,13 +800,25 @@ function normalizeGameConfig(input?: StartGameInput): { ok: true; config: GameCo
     };
   }
 
+  const rawLetterPick = input?.letterPickSeconds ?? null;
+  const letterPickSeconds = rawLetterPick !== null ? Number(rawLetterPick) : null;
+
+  if (letterPickSeconds !== null && (!Number.isInteger(letterPickSeconds) || letterPickSeconds < 5 || letterPickSeconds > 120)) {
+    return {
+      ok: false,
+      status: 400,
+      error: "letterPickSeconds must be an integer between 5 and 120, or null"
+    };
+  }
+
   return {
     ok: true,
     config: {
       roundSeconds,
       endRule,
       manualEndPolicy,
-      scoringMode
+      scoringMode,
+      letterPickSeconds
     }
   };
 }
@@ -816,7 +841,8 @@ export function buildSnapshot(state: StoredRoomState): RoomSnapshot {
       currentTurnParticipantId: currentTurn,
       activeRound: state.game.activeRound ? toActiveRoundSnapshot(state.game.activeRound) : null,
       completedRounds: state.game.completedRounds.map(toCompletedRoundSnapshot),
-      scoring: buildScoringSummary(state)
+      scoring: buildScoringSummary(state),
+      letterPickDeadline: state.game.letterPickDeadline ?? null
     }
   };
 }
@@ -848,12 +874,14 @@ export function initializeRoomState(payload: RoomInitPayload, nowIso = new Date(
         roundSeconds: DEFAULT_ROUND_SECONDS,
         endRule: "WHICHEVER_FIRST",
         manualEndPolicy: DEFAULT_MANUAL_END_POLICY,
-        scoringMode: DEFAULT_SCORING_MODE
+        scoringMode: DEFAULT_SCORING_MODE,
+        letterPickSeconds: null
       },
       turnOrder: [],
       currentTurnIndex: 0,
       activeRound: null,
-      completedRounds: []
+      completedRounds: [],
+      letterPickDeadline: null
     }
   };
 }
@@ -1072,7 +1100,10 @@ export function startGame(
         turnOrder,
         currentTurnIndex: 0,
         activeRound: null,
-        completedRounds: []
+        completedRounds: [],
+        letterPickDeadline: configResult.config.letterPickSeconds
+          ? new Date(new Date(nowIso).getTime() + configResult.config.letterPickSeconds * 1000).toISOString()
+          : null
       }
     }
   };
@@ -1194,7 +1225,8 @@ export function callNumberForTurn(
       ...state,
       game: {
         ...state.game,
-        activeRound: round
+        activeRound: round,
+        letterPickDeadline: null
       }
     }
   };
@@ -1242,7 +1274,10 @@ export function endActiveRound(
         ...state.game,
         currentTurnIndex: nextTurnIndex,
         activeRound: null,
-        completedRounds: nextCompletedRounds
+        completedRounds: nextCompletedRounds,
+        letterPickDeadline: state.game.config.letterPickSeconds
+          ? new Date(new Date(nowIso).getTime() + state.game.config.letterPickSeconds * 1000).toISOString()
+          : null
       }
     }
   };
@@ -1907,6 +1942,31 @@ export function endGame(
   };
 }
 
+export function transferHost(
+  state: StoredRoomState,
+  newHostParticipantId: string,
+  newHostToken: string
+): { ok: true; nextState: StoredRoomState } | RoomMutationFailure {
+  const newHost = participantById(state, newHostParticipantId);
+  if (!newHost || newHost.status !== "ADMITTED") {
+    return { ok: false, status: 404, error: "new host not found or not admitted" };
+  }
+
+  const updatedParticipants = state.participants.map((participant) => ({
+    ...participant,
+    isHost: participant.id === newHostParticipantId
+  }));
+
+  return {
+    ok: true,
+    nextState: {
+      ...state,
+      hostToken: newHostToken,
+      participants: updatedParticipants
+    }
+  };
+}
+
 export class GameRoom implements DurableObject {
   private readonly state: DurableObjectState;
 
@@ -2016,6 +2076,12 @@ export class GameRoom implements DurableObject {
       }
 
       await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
+
+      // Schedule letter-pick auto-pick alarm if configured.
+      if (result.nextState.game.letterPickDeadline) {
+        await this.state.storage.setAlarm(new Date(result.nextState.game.letterPickDeadline).getTime());
+      }
+
       const snapshot = buildSnapshot(result.nextState);
       this.broadcast({ type: "game_started", snapshot });
       return json(snapshot);
@@ -2076,7 +2142,11 @@ export class GameRoom implements DurableObject {
       await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
 
       if (result.roundEnded) {
-        await this.state.storage.deleteAlarm();
+        if (result.nextState.game.letterPickDeadline) {
+          await this.state.storage.setAlarm(new Date(result.nextState.game.letterPickDeadline).getTime());
+        } else {
+          await this.state.storage.deleteAlarm();
+        }
         const snapshot = buildSnapshot(result.nextState);
         this.broadcast({
           type: "round_ended",
@@ -2136,7 +2206,12 @@ export class GameRoom implements DurableObject {
       }
 
       await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
-      await this.state.storage.deleteAlarm();
+
+      if (result.nextState.game.letterPickDeadline) {
+        await this.state.storage.setAlarm(new Date(result.nextState.game.letterPickDeadline).getTime());
+      } else {
+        await this.state.storage.deleteAlarm();
+      }
 
       const snapshot = buildSnapshot(result.nextState);
       this.broadcast({ type: "round_ended", reason: result.completedRound.endReason, snapshot, completedRound: result.completedRound });
@@ -2289,7 +2364,11 @@ export class GameRoom implements DurableObject {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
 
-      this.state.acceptWebSocket(server);
+      // Tag the socket with the participant ID from the query string, if provided.
+      const participantId = url.searchParams.get("pid") ?? undefined;
+      const tags = participantId ? [participantId] : [];
+      this.state.acceptWebSocket(server, tags);
+
       server.send(JSON.stringify({ type: "connected" }));
       const currentState = await this.readRoomState();
       if (currentState) {
@@ -2308,34 +2387,79 @@ export class GameRoom implements DurableObject {
 
   async alarm(): Promise<void> {
     const currentState = await this.readRoomState();
-    if (!currentState) {
+    if (!currentState || currentState.game.status !== "IN_PROGRESS") {
       return;
     }
 
-    if (currentState.game.status !== "IN_PROGRESS" || !currentState.game.activeRound) {
+    const now = Date.now();
+
+    // Case 1: Active round with a timer — end it when time is up.
+    if (currentState.game.activeRound) {
+      const activeRound = currentState.game.activeRound;
+      if (!activeRound.endsAt) {
+        return;
+      }
+
+      if (now < new Date(activeRound.endsAt).getTime()) {
+        await this.state.storage.setAlarm(new Date(activeRound.endsAt).getTime());
+        return;
+      }
+
+      const result = finalizeRoundWithForcedSubmissions(currentState, "TIMER");
+      if (!result.ok) {
+        return;
+      }
+
+      await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
+
+      // Schedule next alarm for letter-pick deadline if configured.
+      if (result.nextState.game.letterPickDeadline) {
+        await this.state.storage.setAlarm(new Date(result.nextState.game.letterPickDeadline).getTime());
+      } else {
+        await this.state.storage.deleteAlarm();
+      }
+
+      const snapshot = buildSnapshot(result.nextState);
+      this.broadcast({ type: "round_ended", reason: "TIMER", snapshot, completedRound: result.completedRound });
       return;
     }
 
-    const activeRound = currentState.game.activeRound;
-    if (!activeRound.endsAt) {
+    // Case 2: No active round — check letter-pick deadline for auto-pick.
+    const deadline = currentState.game.letterPickDeadline;
+    if (!deadline) {
       return;
     }
 
-    if (Date.now() < new Date(activeRound.endsAt).getTime()) {
-      await this.state.storage.setAlarm(new Date(activeRound.endsAt).getTime());
+    if (now < new Date(deadline).getTime()) {
+      await this.state.storage.setAlarm(new Date(deadline).getTime());
       return;
     }
 
-    const result = finalizeRoundWithForcedSubmissions(currentState, "TIMER");
+    const turnParticipantId = currentTurnParticipantId(currentState);
+    if (!turnParticipantId) {
+      return;
+    }
+
+    const pickedNumber = randomUnusedNumber(currentState);
+    if (pickedNumber === null) {
+      return;
+    }
+
+    const result = callNumberForTurn(currentState, turnParticipantId, pickedNumber);
     if (!result.ok) {
       return;
     }
 
     await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
-    await this.state.storage.deleteAlarm();
+
+    if (result.activeRound.endsAt) {
+      await this.state.storage.setAlarm(new Date(result.activeRound.endsAt).getTime());
+    } else {
+      await this.state.storage.deleteAlarm();
+    }
 
     const snapshot = buildSnapshot(result.nextState);
-    this.broadcast({ type: "round_ended", reason: "TIMER", snapshot, completedRound: result.completedRound });
+    this.broadcast({ type: "turn_called", snapshot });
   }
 
   webSocketMessage(_ws: WebSocket, message: string | ArrayBuffer): void {
@@ -2351,8 +2475,103 @@ export class GameRoom implements DurableObject {
     this.broadcast({ type: "event", payload });
   }
 
-  webSocketClose(_ws: WebSocket): void {
+  webSocketClose(ws: WebSocket): void {
     this.broadcastPresence();
+    void this.handleDisconnect(ws);
+  }
+
+  private async handleDisconnect(closedSocket: WebSocket): Promise<void> {
+    // getTags may not exist in test/mock environments.
+    if (typeof this.state.getTags !== "function") {
+      return;
+    }
+    const tags = this.state.getTags(closedSocket);
+    const disconnectedId = tags.length > 0 ? tags[0] : null;
+    if (!disconnectedId) {
+      return;
+    }
+
+    // Check if this participant still has other active sockets (multiple tabs).
+    const remainingSockets = this.state.getWebSockets(disconnectedId);
+    if (remainingSockets.length > 0) {
+      return;
+    }
+
+    let currentState = await this.readRoomState();
+    if (!currentState || currentState.game.status !== "IN_PROGRESS") {
+      return;
+    }
+
+    // --- Host transfer ---
+    const wasHost = currentState.participants.some(
+      (participant) => participant.id === disconnectedId && participant.isHost
+    );
+
+    if (wasHost) {
+      const admitted = admittedParticipants(currentState).filter((participant) => !participant.isHost);
+      let newHostId: string | null = null;
+      for (const candidate of admitted) {
+        const sockets = this.state.getWebSockets(candidate.id);
+        if (sockets.length > 0) {
+          newHostId = candidate.id;
+          break;
+        }
+      }
+
+      if (newHostId) {
+        const newToken = crypto.randomUUID();
+        const result = transferHost(currentState, newHostId, newToken);
+        if (result.ok) {
+          currentState = result.nextState;
+          await this.state.storage.put(ROOM_STORAGE_KEY, currentState);
+
+          const newHostSockets = this.state.getWebSockets(newHostId);
+          const tokenMessage = JSON.stringify({ type: "host_transferred", hostToken: newToken });
+          for (const socket of newHostSockets) {
+            socket.send(tokenMessage);
+          }
+
+          const snapshot = buildSnapshot(currentState);
+          this.broadcast({ type: "host_transferred", snapshot });
+        }
+      }
+    }
+
+    // --- Turn skip: if it was this player's turn to pick a letter, auto-advance ---
+    const turnId = currentTurnParticipantId(currentState);
+    if (turnId !== disconnectedId) {
+      return;
+    }
+
+    // Only skip if we're waiting for a letter pick (no active round).
+    if (currentState.game.activeRound) {
+      return;
+    }
+
+    // If letter-pick timer is configured it will handle this via alarm; skip only when there's no timer.
+    if (currentState.game.config.letterPickSeconds) {
+      return;
+    }
+
+    // Advance to the next connected player's turn by auto-picking a random letter.
+    const pickedNumber = randomUnusedNumber(currentState);
+    if (pickedNumber === null) {
+      return;
+    }
+
+    const callResult = callNumberForTurn(currentState, disconnectedId, pickedNumber);
+    if (!callResult.ok) {
+      return;
+    }
+
+    await this.state.storage.put(ROOM_STORAGE_KEY, callResult.nextState);
+
+    if (callResult.activeRound.endsAt) {
+      await this.state.storage.setAlarm(new Date(callResult.activeRound.endsAt).getTime());
+    }
+
+    const snapshot = buildSnapshot(callResult.nextState);
+    this.broadcast({ type: "turn_called", snapshot });
   }
 
   private async readRoomState(): Promise<StoredRoomState | null> {

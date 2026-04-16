@@ -146,6 +146,7 @@ export interface RoomStateResponse {
       endRule: RoundEndRule;
       manualEndPolicy: ManualEndPolicy;
       scoringMode: ScoringMode;
+      letterPickSeconds: number | null;
     };
     turnOrder: string[];
     currentTurnIndex: number;
@@ -153,6 +154,7 @@ export interface RoomStateResponse {
     activeRound: ActiveRoundSnapshot | null;
     completedRounds: CompletedRoundSnapshot[];
     scoring: ScoringSummary;
+    letterPickDeadline: string | null;
   };
 }
 
@@ -228,6 +230,11 @@ export type RoomSocketEvent =
       snapshot: RoomStateResponse;
     }
   | {
+      type: "host_transferred";
+      snapshot?: RoomStateResponse;
+      hostToken?: string;
+    }
+  | {
       type: "event";
       payload: unknown;
     };
@@ -239,15 +246,16 @@ async function parseError(response: Response): Promise<string> {
   return payload?.error ?? "Request failed";
 }
 
-export function roomWebSocketUrl(roomCode: string): string {
+export function roomWebSocketUrl(roomCode: string, participantId?: string): string {
   const url = new URL(API_BASE_URL);
   const protocol = url.protocol === "https:" ? "wss:" : "ws:";
   const normalizedCode = roomCode.trim().toUpperCase();
-  return `${protocol}//${url.host}/ws/${normalizedCode}`;
+  const pidParam = participantId ? `?pid=${encodeURIComponent(participantId)}` : "";
+  return `${protocol}//${url.host}/ws/${normalizedCode}${pidParam}`;
 }
 
-export function connectRoomSocket(roomCode: string): WebSocket {
-  return new WebSocket(roomWebSocketUrl(roomCode));
+export function connectRoomSocket(roomCode: string, participantId?: string): WebSocket {
+  return new WebSocket(roomWebSocketUrl(roomCode, participantId));
 }
 
 export async function createRoom(hostName: string, maxParticipants: number): Promise<CreateRoomResponse> {
@@ -323,6 +331,7 @@ export async function startGame(
     endRule?: RoundEndRule;
     manualEndPolicy?: ManualEndPolicy;
     scoringMode?: ScoringMode;
+    letterPickSeconds?: number | null;
   }
 ): Promise<RoomStateResponse> {
   const normalizedCode = roomCode.trim().toUpperCase();

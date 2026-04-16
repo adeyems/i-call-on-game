@@ -18,6 +18,7 @@ import {
   type CreateRoomResponse,
   type JoinRoomResponse,
   type ManualEndPolicy,
+  type RoundEndRule,
   type RoundAnswerInput,
   type RoundMarks,
   type ScoringMode,
@@ -60,7 +61,7 @@ type StoredRoundDraft = {
   updatedAt: string;
 };
 
-type RoundEndPreset = "HOST_OR_TIMER" | "CALLER_OR_TIMER" | "TIMER_ONLY";
+type RoundEndPreset = "HOST_OR_TIMER" | "CALLER_OR_TIMER" | "TIMER_ONLY" | "NO_TIMER";
 type MobileGamePanel = "PLAY" | "SCORES" | "DETAILS";
 
 function parseJoinRoomCode(pathname: string): string | null {
@@ -300,7 +301,18 @@ function manualPolicyFromPreset(preset: RoundEndPreset): ManualEndPolicy {
   return "HOST_OR_CALLER";
 }
 
+function endRuleFromPreset(preset: RoundEndPreset): RoundEndRule {
+  if (preset === "NO_TIMER") {
+    return "FIRST_SUBMISSION";
+  }
+  return "TIMER";
+}
+
 function roundEndRuleLabel(config: RoomStateResponse["game"]["config"]): string {
+  if (config.endRule === "FIRST_SUBMISSION") {
+    return "No timer (submit to end)";
+  }
+
   if (config.endRule === "TIMER") {
     if (config.manualEndPolicy === "CALLER_OR_TIMER" || config.manualEndPolicy === "CALLER_ONLY") {
       return "Current caller or timer";
@@ -313,11 +325,7 @@ function roundEndRuleLabel(config: RoomStateResponse["game"]["config"]): string 
     return "Host or timer";
   }
 
-  if (config.endRule === "FIRST_SUBMISSION") {
-    return "First submission only (legacy)";
-  }
-
-  return "Whichever comes first (legacy)";
+  return "Whichever comes first";
 }
 
 function scoringModeLabel(mode: ScoringMode): string {
@@ -362,12 +370,74 @@ function snapshotFromEvent(event: RoomSocketEvent): RoomStateResponse | null {
     event.type === "round_scores_published" ||
     event.type === "round_scores_discarded" ||
     event.type === "game_cancelled" ||
-    event.type === "game_ended"
+    event.type === "game_ended" ||
+    (event.type === "host_transferred" && event.snapshot)
   ) {
-    return event.snapshot;
+    return event.snapshot as RoomStateResponse;
   }
 
   return null;
+}
+
+function HowToPlaySection() {
+  const steps = [
+    {
+      number: "1",
+      title: "Create or join a room",
+      description: "The host creates a room and shares the link. Players join by entering their name."
+    },
+    {
+      number: "2",
+      title: "Call a letter",
+      description: "Each turn, one player picks a number (1\u201326) which maps to a letter A\u2013Z. That letter is locked in for the round."
+    },
+    {
+      number: "3",
+      title: "Fill in 5 categories",
+      description: "Everyone races to answer: Name, Animal, Place, Thing, and Food \u2014 all starting with the chosen letter."
+    },
+    {
+      number: "4",
+      title: "Submit before time runs out",
+      description: "The clock is ticking! Submit your answers before the round ends. Empty boxes score nothing."
+    },
+    {
+      number: "5",
+      title: "Host scores the round",
+      description: "The host reviews each answer and marks it correct or wrong. Points are awarded and the leaderboard updates."
+    },
+    {
+      number: "6",
+      title: "Climb the leaderboard",
+      description: "Rounds continue with a new caller each turn. The player with the most points at the end wins!"
+    }
+  ];
+
+  return (
+    <section className="card rules-card">
+      <h2 className="rules-heading">How to play</h2>
+      <p className="rules-intro">A fast-paced multiplayer word game. Think quick, answer first!</p>
+      <div className="rules-steps">
+        {steps.map((step) => (
+          <div key={step.number} className="rules-step">
+            <span className="rules-step-number">{step.number}</span>
+            <div className="rules-step-body">
+              <h3 className="rules-step-title">{step.title}</h3>
+              <p className="rules-step-desc">{step.description}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="rules-categories">
+        <span className="rules-category-label">Categories</span>
+        <div className="rules-category-chips">
+          {["Name", "Animal", "Place", "Thing", "Food"].map((cat) => (
+            <span key={cat} className="rules-category-chip">{cat}</span>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) {
@@ -376,6 +446,8 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
   const [roundSeconds, setRoundSeconds] = useState(20);
   const [roundEndPreset, setRoundEndPreset] = useState<RoundEndPreset>("HOST_OR_TIMER");
   const [scoringMode, setScoringMode] = useState<ScoringMode>("FIXED_10");
+  const [letterPickEnabled, setLetterPickEnabled] = useState(false);
+  const [letterPickSeconds, setLetterPickSeconds] = useState(15);
   const [creating, setCreating] = useState(false);
   const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -406,7 +478,7 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
       return;
     }
 
-    const socket = connectRoomSocket(room.roomCode);
+    const socket = connectRoomSocket(room.roomCode, "host");
 
     socket.onmessage = (message) => {
       const payload = parseSocketEvent(message as MessageEvent<string>);
@@ -489,9 +561,10 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
     try {
       await startGame(room.roomCode, room.hostToken, {
         roundSeconds,
-        endRule: "TIMER",
+        endRule: endRuleFromPreset(roundEndPreset),
         manualEndPolicy: manualPolicyFromPreset(roundEndPreset),
-        scoringMode
+        scoringMode,
+        letterPickSeconds: letterPickEnabled ? letterPickSeconds : null
       });
       onNavigate(`/game/${room.roomCode}`);
     } catch (startError) {
@@ -614,6 +687,7 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
               <option value="HOST_OR_TIMER">Host or timer</option>
               <option value="CALLER_OR_TIMER">Current caller or timer</option>
               <option value="TIMER_ONLY">Timer only</option>
+              <option value="NO_TIMER">No timer (submit to end)</option>
             </select>
 
             <label htmlFor="scoringMode">Scoring mode</label>
@@ -621,6 +695,29 @@ function HostCreateCard({ onNavigate }: { onNavigate: (path: string) => void }) 
               <option value="FIXED_10">Fixed 10/0 per field</option>
               <option value="SHARED_10">Shared 10 by matching answers</option>
             </select>
+
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <input
+                type="checkbox"
+                checked={letterPickEnabled}
+                onChange={(event) => setLetterPickEnabled(event.target.checked)}
+                style={{ width: "auto", margin: 0 }}
+              />
+              Auto-pick letter after timeout
+            </label>
+            {letterPickEnabled ? (
+              <>
+                <label htmlFor="letterPickSeconds">Letter pick timeout (seconds): {letterPickSeconds}</label>
+                <input
+                  id="letterPickSeconds"
+                  type="range"
+                  min={5}
+                  max={60}
+                  value={letterPickSeconds}
+                  onChange={(event) => setLetterPickSeconds(Number(event.target.value))}
+                />
+              </>
+            ) : null}
           </div>
 
           <h3>Host controls</h3>
@@ -941,7 +1038,8 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
   }, [roomCode]);
 
   useEffect(() => {
-    const socket = connectRoomSocket(roomCode);
+    const session = readRoomSession(roomCode);
+    const socket = connectRoomSocket(roomCode, session?.participantId);
 
     socket.onmessage = (message) => {
       const payload = parseSocketEvent(message as MessageEvent<string>);
@@ -952,6 +1050,19 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
       if (payload.type === "presence") {
         setConnectedClients(payload.count);
         return;
+      }
+
+      if (payload.type === "host_transferred") {
+        // If this client received a hostToken, it means we are the new host.
+        if (payload.hostToken && session) {
+          const updatedSession: RoomParticipantSession = {
+            ...session,
+            isHost: true,
+            hostToken: payload.hostToken
+          };
+          saveRoomSession(roomCode, updatedSession);
+          setParticipantSession(updatedSession);
+        }
       }
 
       const snapshot = snapshotFromEvent(payload);
@@ -975,6 +1086,11 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
       if (payload.type === "round_ended") {
         stopRoundTimerSong();
         playRoundEndSound();
+        // Flush any pending draft sync before clearing answers.
+        if (draftSyncTimeoutRef.current !== null) {
+          window.clearTimeout(draftSyncTimeoutRef.current);
+          draftSyncTimeoutRef.current = null;
+        }
         setRoundAnswers(emptyRoundAnswers());
         lastDraftSignatureRef.current = "";
       }
@@ -1026,22 +1142,26 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
   }, []);
 
   useEffect(() => {
-    if (!roomState?.game.activeRound) {
-      return;
-    }
-
-    if (!isDocumentVisible) {
+    const needsTick = !!roomState?.game.activeRound || !!roomState?.game.letterPickDeadline;
+    if (!needsTick || !isDocumentVisible) {
       return;
     }
 
     const timer = window.setInterval(() => {
-      setNowEpoch(Date.now());
+      const now = Date.now();
+      setNowEpoch((previous) => {
+        // Only trigger a re-render when the displayed second actually changes.
+        if (Math.floor(now / 1000) === Math.floor(previous / 1000)) {
+          return previous;
+        }
+        return now;
+      });
     }, 1000);
 
     return () => {
       window.clearInterval(timer);
     };
-  }, [isDocumentVisible, roomState?.game.activeRound]);
+  }, [isDocumentVisible, roomState?.game.activeRound, roomState?.game.letterPickDeadline]);
 
   useEffect(() => {
     if (typeof window.matchMedia === "function") {
@@ -1130,8 +1250,22 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
         ? roomState?.game.config.roundSeconds ?? null
         : null;
 
+  const letterPickDeadlineEpoch = roomState?.game.letterPickDeadline
+    ? new Date(roomState.game.letterPickDeadline).getTime()
+    : null;
+  const letterPickCountdown = letterPickDeadlineEpoch
+    ? Math.max(0, Math.ceil((letterPickDeadlineEpoch - nowEpoch) / 1000))
+    : null;
+
   const sidebarTimer = useMemo(() => {
     if (!activeRound) {
+      if (letterPickCountdown !== null && letterPickCountdown > 0) {
+        return {
+          label: "Auto-pick In",
+          value: formatTimerDisplay(letterPickCountdown),
+          hint: "Waiting for letter pick"
+        };
+      }
       return {
         label: "Round Timer",
         value: "--:--",
@@ -1160,7 +1294,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
       value: "∞",
       hint: `R${activeRound.roundNumber} · Letter ${activeRound.activeLetter}`
     };
-  }, [activeRound, countdownSecondsLeft, showLetterModal, timerSecondsLeft]);
+  }, [activeRound, countdownSecondsLeft, letterPickCountdown, showLetterModal, timerSecondsLeft]);
 
   const shouldPlayTimerSong = !!activeRound && !!activeRound.endsAt && isRoundOpen && isDocumentVisible;
 
@@ -1293,6 +1427,10 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
       draftSyncTimeoutRef.current = null;
     }
 
+    // Flush immediately when timer is about to expire; otherwise use a short debounce.
+    const urgentFlush = endsAtEpoch !== null && endsAtEpoch - Date.now() < 3000;
+    const delay = urgentFlush ? 0 : 280;
+
     draftSyncTimeoutRef.current = window.setTimeout(() => {
       void updateRoundDraft(roomCode, participantId, roundAnswers)
         .then(() => {
@@ -1304,7 +1442,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
         .finally(() => {
           draftSyncTimeoutRef.current = null;
         });
-    }, 420);
+    }, delay);
 
     return () => {
       if (draftSyncTimeoutRef.current !== null) {
@@ -1312,7 +1450,7 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
         draftSyncTimeoutRef.current = null;
       }
     };
-  }, [activeRoundNumber, canAutosaveDraft, participantId, roomCode, roundAnswers]);
+  }, [activeRoundNumber, canAutosaveDraft, endsAtEpoch, participantId, roomCode, roundAnswers]);
 
   const isRoundFullyReviewed = (round: RoomStateResponse["game"]["completedRounds"][number]): boolean => {
     return round.submissions.every((submission) => !!submission.review);
@@ -1668,6 +1806,9 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                     <p className="hint">
                       Waiting for <strong>{participantsById.get(currentTurnParticipantId ?? "")?.name ?? "active caller"}</strong> to
                       pick a letter.
+                      {letterPickCountdown !== null && letterPickCountdown > 0
+                        ? ` Auto-pick in ${letterPickCountdown}s.`
+                        : null}
                     </p>
 
                     <h3>Answer columns</h3>
@@ -1924,7 +2065,17 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Round Seconds</span>
-                  <strong className="detail-value">{roomState.game.config.roundSeconds}</strong>
+                  <strong className="detail-value">
+                    {roomState.game.config.endRule === "FIRST_SUBMISSION" ? "No timer" : roomState.game.config.roundSeconds}
+                  </strong>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Letter Pick</span>
+                  <strong className="detail-value">
+                    {roomState.game.config.letterPickSeconds
+                      ? `Auto-pick after ${roomState.game.config.letterPickSeconds}s`
+                      : "Manual"}
+                  </strong>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Admitted Players</span>
@@ -2125,7 +2276,13 @@ export default function App() {
       ) : null}
       {gameRoomCode ? <GameBoardCard roomCode={gameRoomCode} onNavigate={onNavigate} /> : null}
       {!gameRoomCode && joinRoomCode ? <JoinRoomCard roomCode={joinRoomCode} onNavigate={onNavigate} /> : null}
-      {!gameRoomCode && !joinRoomCode ? <HostCreateCard onNavigate={onNavigate} /> : null}
+      {!gameRoomCode && !joinRoomCode ? (
+        <>
+          <HostCreateCard onNavigate={onNavigate} />
+          <HowToPlaySection />
+        </>
+      ) : null}
+      {!gameRoomCode && joinRoomCode ? <HowToPlaySection /> : null}
     </main>
   );
 }
