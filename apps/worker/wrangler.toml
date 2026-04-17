@@ -3,8 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2026-02-08"
 workers_dev = true
 
+routes = [
+  { pattern = "api.icallon.cardgamelobby.com", custom_domain = true }
+]
+
 [vars]
-APP_ORIGIN = "https://i-call-on-web.pages.dev"
+APP_ORIGIN = "https://icallon.cardgamelobby.com"
 
 [env.local.vars]
 APP_ORIGIN = "http://localhost:5181"
