@@ -348,6 +348,29 @@ code {
   width: min(1260px, 100%);
 }
 
+.home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.85rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.035);
+  color: #cddbd2;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 180ms ease, background 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.home-link:hover {
+  border-color: rgba(70, 236, 19, 0.35);
+  background: rgba(70, 236, 19, 0.07);
+  color: var(--primary);
+  transform: translateX(-2px);
+}
+
 .game-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;

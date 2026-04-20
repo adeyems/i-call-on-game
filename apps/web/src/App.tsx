@@ -1723,6 +1723,16 @@ function GameBoardCard({ roomCode, onNavigate }: { roomCode: string; onNavigate:
 
   return (
     <section className="card game-card">
+      <a
+        href="/"
+        className="home-link"
+        onClick={(event) => {
+          event.preventDefault();
+          onNavigate("/");
+        }}
+      >
+        ← Home
+      </a>
       <h1>Game Board</h1>
       <p className="subtitle">
         Room code: <strong>{roomCode}</strong>
