@@ -275,8 +275,8 @@ describe("unit: round flow logic", () => {
     }
   });
 
-  it("keeps round open after a submission when rule is TIMER", () => {
-    const started = createStartedState({ endRule: "TIMER" });
+  it("keeps round open after a submission when rule is TIMER and submitter cannot end", () => {
+    const started = createStartedState({ endRule: "TIMER", manualEndPolicy: "NONE" });
     const called = callNumberForTurn(started, "host", 5, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -304,8 +304,38 @@ describe("unit: round flow logic", () => {
     }
   });
 
+  it("ends the round when the host submits under HOST_OR_CALLER policy and TIMER rule", () => {
+    const started = createStartedState({ endRule: "TIMER", manualEndPolicy: "HOST_OR_CALLER" });
+    const called = callNumberForTurn(started, "host", 8, "2026-02-08T00:00:11.000Z");
+    expect(called.ok).toBe(true);
+    if (!called.ok) return;
+
+    const submitted = submitRoundAnswers(
+      called.nextState,
+      "host",
+      {
+        name: "Host",
+        animal: "Hen",
+        place: "Havana",
+        thing: "Hat",
+        food: "Ham"
+      },
+      "2026-02-08T00:00:15.000Z"
+    );
+
+    expect(submitted.ok).toBe(true);
+    if (submitted.ok) {
+      expect(submitted.roundEnded).toBe(true);
+      expect(submitted.completedRound?.endReason).toBe("MANUAL_END");
+      // Other players' drafts should have been force-submitted.
+      expect(submitted.nextState.game.activeRound).toBeNull();
+      const completed = submitted.nextState.game.completedRounds[0];
+      expect(completed.submissions.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
   it("prevents duplicate submissions from the same participant", () => {
-    const started = createStartedState({ endRule: "TIMER" });
+    const started = createStartedState({ endRule: "TIMER", manualEndPolicy: "NONE" });
     const called = callNumberForTurn(started, "host", 7, "2026-02-08T00:00:11.000Z");
     expect(called.ok).toBe(true);
     if (!called.ok) {
@@ -640,25 +670,9 @@ describe("unit: round flow logic", () => {
       return;
     }
 
-    const hostSubmitted = submitRoundAnswers(
-      called.nextState,
-      "host",
-      {
-        name: "Ada",
-        animal: "Ant",
-        place: "Accra",
-        thing: "Anvil",
-        food: "Apple"
-      },
-      "2026-02-08T00:00:15.000Z"
-    );
-    expect(hostSubmitted.ok).toBe(true);
-    if (!hostSubmitted.ok) {
-      return;
-    }
-
+    // Ada (non-host, non-caller) submits first — round stays open.
     const adaSubmitted = submitRoundAnswers(
-      hostSubmitted.nextState,
+      called.nextState,
       "p-ada",
       {
         name: "Ada",
@@ -667,21 +681,34 @@ describe("unit: round flow logic", () => {
         thing: "Arrow",
         food: "Apricot"
       },
-      "2026-02-08T00:00:16.000Z"
+      "2026-02-08T00:00:15.000Z"
     );
     expect(adaSubmitted.ok).toBe(true);
     if (!adaSubmitted.ok) {
       return;
     }
 
-    const ended = endRoundManually(adaSubmitted.nextState, "host", "2026-02-08T00:00:18.000Z");
-    expect(ended.ok).toBe(true);
-    if (!ended.ok) {
+    // Host (authorized) submits last — round ends automatically.
+    const hostSubmitted = submitRoundAnswers(
+      adaSubmitted.nextState,
+      "host",
+      {
+        name: "Ada",
+        animal: "Ant",
+        place: "Accra",
+        thing: "Anvil",
+        food: "Apple"
+      },
+      "2026-02-08T00:00:16.000Z"
+    );
+    expect(hostSubmitted.ok).toBe(true);
+    if (!hostSubmitted.ok) {
       return;
     }
+    expect(hostSubmitted.roundEnded).toBe(true);
 
     const scoredHost = scoreRoundSubmission(
-      ended.nextState,
+      hostSubmitted.nextState,
       "host-token",
       1,
       "host",

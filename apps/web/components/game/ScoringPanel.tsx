@@ -104,18 +104,18 @@ export function ScoringPanel(props: Props) {
   };
 
   return (
-    <section className="card-glow p-5">
+    <section className="card-glow p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-[var(--color-muted)]">
             Round {round.roundNumber} · Letter {round.activeLetter}
           </p>
-          <h3 className="text-xl font-bold">
+          <h3 className="text-lg font-bold sm:text-xl">
             {isHost ? "Score submissions" : "Scoring in progress"}
           </h3>
           {!isHost ? (
-            <p className="mt-1 text-xs text-[var(--color-muted)]">
-              Host is reviewing answers · {reviewedCount}/{round.submissions.length} reviewed
+            <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+              Host is reviewing · {reviewedCount}/{round.submissions.length} reviewed
             </p>
           ) : null}
         </div>
@@ -126,14 +126,14 @@ export function ScoringPanel(props: Props) {
               disabled={actionKey !== null}
               className="btn-secondary text-sm"
             >
-              {actionKey === "discard" ? "Discarding…" : "Discard round"}
+              {actionKey === "discard" ? "Discarding…" : "Discard"}
             </button>
             <button
               onClick={handlePublish}
               disabled={!allReviewed || actionKey !== null}
               className="btn-primary text-sm"
             >
-              {actionKey === "publish" ? "Publishing…" : "Publish scores"}
+              {actionKey === "publish" ? "Publishing…" : "Publish"}
             </button>
           </div>
         ) : null}
@@ -151,7 +151,118 @@ export function ScoringPanel(props: Props) {
         </p>
       ) : null}
 
-      <div className="mt-4 overflow-x-auto">
+      {/* Mobile: stacked per-player cards */}
+      <div className="mt-4 flex flex-col gap-3 md:hidden">
+        {round.submissions.map((submission) => {
+          const marks = getMarks(submission);
+          const reviewed = !!submission.review;
+          const total = submission.review?.scores.total ?? 0;
+          return (
+            <article
+              key={submission.participantId}
+              className="rounded-2xl border border-white/10 bg-white/[0.02] p-3"
+            >
+              <header className="mb-2 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-white">{submission.participantName}</p>
+                  {!reviewed && !isHost ? (
+                    <p className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+                      Pending review
+                    </p>
+                  ) : null}
+                </div>
+                <span
+                  className={[
+                    "flex-none rounded-md border px-2 py-1 text-xs font-display font-bold",
+                    reviewed
+                      ? "border-[rgba(70,236,19,0.4)] bg-[rgba(70,236,19,0.1)] text-[var(--color-primary)]"
+                      : "border-white/10 bg-white/[0.03] text-[var(--color-muted)]"
+                  ].join(" ")}
+                >
+                  {reviewed ? total : "—"}
+                </span>
+              </header>
+
+              <div className="flex flex-col gap-1.5">
+                {ROUND_FIELDS.map((field) => {
+                  const answer = submission.answers[field];
+                  const isCorrect = marks[field];
+                  const key = `${submission.participantId}:${field}`;
+                  return (
+                    <div
+                      key={field}
+                      className="flex items-center gap-2 rounded-lg border border-white/8 bg-white/[0.015] px-2 py-1.5"
+                    >
+                      <span className="w-16 flex-none text-[10px] font-bold uppercase tracking-wider text-[var(--color-muted)]">
+                        {FIELD_LABELS[field]}
+                      </span>
+                      <span
+                        className={[
+                          "min-w-0 flex-1 truncate text-sm",
+                          answer.trim().length === 0 ? "text-[var(--color-muted)] italic" : "text-white"
+                        ].join(" ")}
+                        title={answer}
+                      >
+                        {answer.trim().length === 0 ? "— empty —" : answer}
+                      </span>
+                      {isHost ? (
+                        <div className="flex flex-none gap-1">
+                          <button
+                            type="button"
+                            disabled={actionKey === key}
+                            onClick={() => toggleField(submission, field, true)}
+                            className={[
+                              "flex h-8 w-8 items-center justify-center rounded-md border text-sm transition-transform active:scale-95",
+                              isCorrect
+                                ? "border-[rgba(70,236,19,0.65)] bg-[rgba(70,236,19,0.22)] text-[#b9ff9f]"
+                                : "border-white/15 bg-white/5 text-[#e3ece6]"
+                            ].join(" ")}
+                            aria-label={`mark ${field} correct`}
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            disabled={actionKey === key}
+                            onClick={() => toggleField(submission, field, false)}
+                            className={[
+                              "flex h-8 w-8 items-center justify-center rounded-md border text-sm transition-transform active:scale-95",
+                              !isCorrect
+                                ? "border-[rgba(255,114,114,0.55)] bg-[rgba(255,114,114,0.2)] text-[#ffd3d3]"
+                                : "border-white/15 bg-white/5 text-[#e3ece6]"
+                            ].join(" ")}
+                            aria-label={`mark ${field} wrong`}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : reviewed ? (
+                        <span
+                          className={[
+                            "flex h-7 w-7 flex-none items-center justify-center rounded-md border text-xs",
+                            isCorrect
+                              ? "border-[rgba(70,236,19,0.45)] bg-[rgba(70,236,19,0.12)] text-[#b9ff9f]"
+                              : "border-[rgba(255,114,114,0.4)] bg-[rgba(255,114,114,0.1)] text-[#ffbdbd]"
+                          ].join(" ")}
+                        >
+                          {isCorrect ? "✓" : "✕"}
+                        </span>
+                      ) : (
+                        <span className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-white/8 bg-white/[0.02] text-xs text-[var(--color-muted)]">
+                          ·
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      {/* Desktop: the familiar wide table */}
+      <div className="mt-4 hidden md:block md:overflow-x-auto">
         <table className="w-full border-separate border-spacing-y-2">
           <thead>
             <tr className="text-left text-[11px] font-bold uppercase tracking-widest text-[var(--color-muted)]">
@@ -167,8 +278,8 @@ export function ScoringPanel(props: Props) {
           <tbody>
             {round.submissions.map((submission) => {
               const marks = getMarks(submission);
-              const total = submission.review?.scores.total ?? 0;
               const reviewed = !!submission.review;
+              const total = submission.review?.scores.total ?? 0;
               return (
                 <tr key={submission.participantId} className="align-top">
                   <td className="rounded-l-xl border-y border-l border-white/10 bg-white/[0.02] px-3 py-2">
@@ -188,14 +299,14 @@ export function ScoringPanel(props: Props) {
                         <div className="grid gap-1">
                           <span
                             className={[
-                              "truncate rounded-md border px-2 py-1 text-xs",
+                              "rounded-md border px-2 py-1 text-xs",
                               answer.trim().length === 0
-                                ? "border-white/5 bg-white/[0.02] text-[var(--color-muted)]"
+                                ? "border-white/5 bg-white/[0.02] text-[var(--color-muted)] italic"
                                 : "border-white/10 bg-white/[0.04] text-[#e6f0ea]"
                             ].join(" ")}
                             title={answer}
                           >
-                            {answer.trim().length === 0 ? "—" : answer}
+                            {answer.trim().length === 0 ? "— empty —" : answer}
                           </span>
                           {isHost ? (
                             <div className="flex gap-1">

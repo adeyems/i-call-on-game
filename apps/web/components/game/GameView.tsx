@@ -407,17 +407,17 @@ export function GameView({ roomCode }: { roomCode: string }) {
   })();
 
   return (
-    <main className="min-h-screen px-4 py-6 sm:px-6 sm:py-10">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+    <main className="min-h-screen px-3 py-4 sm:px-6 sm:py-10">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 sm:gap-6">
         <HomeLink />
 
-        <header className="card-glow flex flex-wrap items-start justify-between gap-4 p-5 sm:p-6">
+        <header className="card-glow flex flex-wrap items-start justify-between gap-3 p-4 sm:p-6">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-muted)]">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-muted)] sm:text-xs">
               Game · {connectedClients} connected
             </p>
-            <h1 className="gradient-title text-3xl font-extrabold sm:text-4xl">Room {roomCode}</h1>
-            <p className="mt-1 text-sm text-[var(--color-muted)]">
+            <h1 className="gradient-title text-2xl font-extrabold sm:text-4xl">Room {roomCode}</h1>
+            <p className="mt-0.5 text-xs text-[var(--color-muted)] sm:text-sm">
               {game.status === "LOBBY"
                 ? "Waiting for host to start."
                 : game.status === "CANCELLED"
@@ -496,7 +496,7 @@ export function GameView({ roomCode }: { roomCode: string }) {
         {game.status === "IN_PROGRESS" || game.status === "FINISHED" ? (
           <>
             <GameSettingsStrip config={game.config} />
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="grid gap-3 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
               <section className="flex flex-col gap-5">
                 <TimerCard
                 label={sidebarTimer.label}

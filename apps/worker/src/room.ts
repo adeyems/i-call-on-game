@@ -1531,8 +1531,20 @@ export function submitRoundAnswers(
     }
   };
 
+  // Round ends on this submission when either:
+  //   - The end-rule says so (FIRST_SUBMISSION / WHICHEVER_FIRST), or
+  //   - The submitter is authorized to end the round under the current
+  //     manualEndPolicy (HOST_OR_CALLER → host or caller; CALLER_* → caller).
+  const policy = state.game.config.manualEndPolicy;
+  const submitterIsCaller = participantId === activeRound.turnParticipantId;
+  const submitterCanEndRound =
+    (policy === "HOST_OR_CALLER" && (participant.isHost || submitterIsCaller)) ||
+    ((policy === "CALLER_ONLY" || policy === "CALLER_OR_TIMER") && submitterIsCaller);
+
   const shouldEndImmediately =
-    state.game.config.endRule === "FIRST_SUBMISSION" || state.game.config.endRule === "WHICHEVER_FIRST";
+    state.game.config.endRule === "FIRST_SUBMISSION" ||
+    state.game.config.endRule === "WHICHEVER_FIRST" ||
+    submitterCanEndRound;
 
   if (!shouldEndImmediately) {
     return {
@@ -1544,7 +1556,13 @@ export function submitRoundAnswers(
     };
   }
 
-  const ended = finalizeRoundWithForcedSubmissions(withSubmission, "FIRST_SUBMISSION", nowIso);
+  // Reason precedence: explicit end-rule > policy-driven manual end.
+  const endReason: RoundEndReason =
+    state.game.config.endRule === "FIRST_SUBMISSION" ||
+    state.game.config.endRule === "WHICHEVER_FIRST"
+      ? "FIRST_SUBMISSION"
+      : "MANUAL_END";
+  const ended = finalizeRoundWithForcedSubmissions(withSubmission, endReason, nowIso);
   if (!ended.ok) {
     return ended;
   }

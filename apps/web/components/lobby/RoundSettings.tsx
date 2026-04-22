@@ -47,11 +47,20 @@ export function RoundSettings({
             onChange={(event) => onPresetChange(event.target.value as RoundEndPreset)}
             className="input mt-1.5"
           >
-            <option value="HOST_OR_TIMER">Host or timer</option>
-            <option value="CALLER_OR_TIMER">Current caller or timer</option>
-            <option value="TIMER_ONLY">Timer only</option>
+            <option value="HOST_OR_TIMER">Host submits or timer expires</option>
+            <option value="CALLER_OR_TIMER">Caller submits or timer expires</option>
+            <option value="TIMER_ONLY">Timer only (submissions never end round)</option>
             <option value="NO_TIMER">No timer (first submit ends round)</option>
           </select>
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            {preset === "HOST_OR_TIMER"
+              ? "When the host submits, the round ends and all drafts are auto-submitted."
+              : preset === "CALLER_OR_TIMER"
+              ? "When the current caller submits, the round ends for everyone."
+              : preset === "TIMER_ONLY"
+              ? "Only the timer ends the round. Everyone submits at their own pace."
+              : "The very first submission ends the round. Be quick."}
+          </p>
         </div>
 
         {hasTimer ? (

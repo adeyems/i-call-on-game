@@ -1459,26 +1459,7 @@ describe("integration: lobby and round lifecycle routes", () => {
       env
     );
 
-    await worker.fetch(
-      new Request(`http://localhost/api/rooms/${created.roomCode}/submit`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          participantId: "host",
-          answers: {
-            name: "Ada",
-            animal: "Ant",
-            place: "Accra",
-            thing: "Anvil",
-            food: "Apple"
-          }
-        })
-      }),
-      env
-    );
-
+    // Ada (non-host, non-caller) submits first — round stays open.
     await worker.fetch(
       new Request(`http://localhost/api/rooms/${created.roomCode}/submit`, {
         method: "POST",
@@ -1499,13 +1480,23 @@ describe("integration: lobby and round lifecycle routes", () => {
       env
     );
 
+    // Host (authorized under HOST_OR_CALLER) submits last — round ends.
     await worker.fetch(
-      new Request(`http://localhost/api/rooms/${created.roomCode}/end`, {
+      new Request(`http://localhost/api/rooms/${created.roomCode}/submit`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ participantId: "host" })
+        body: JSON.stringify({
+          participantId: "host",
+          answers: {
+            name: "Ada",
+            animal: "Ant",
+            place: "Accra",
+            thing: "Anvil",
+            food: "Apple"
+          }
+        })
       }),
       env
     );

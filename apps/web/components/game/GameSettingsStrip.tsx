@@ -7,12 +7,12 @@ type Props = {
 export function GameSettingsStrip({ config }: Props) {
   const endRuleLabel =
     config.endRule === "FIRST_SUBMISSION"
-      ? "No timer — submit ends round"
+      ? "First submit ends round"
       : config.manualEndPolicy === "NONE"
       ? "Timer only"
       : config.manualEndPolicy === "CALLER_OR_TIMER" || config.manualEndPolicy === "CALLER_ONLY"
-      ? "Caller or timer"
-      : "Host or timer";
+      ? "Caller submits ends round"
+      : "Host submits ends round";
 
   const chips: Array<{ label: string; value: string }> = [
     { label: "Rule", value: endRuleLabel }

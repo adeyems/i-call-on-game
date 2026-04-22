@@ -293,25 +293,10 @@ describe("unit: room edge behavior", () => {
     }
 
     const afterCountdown = forceCountdownOver(called.nextState);
-    const hostSubmit = submitRoundAnswers(
-      afterCountdown,
-      "host",
-      {
-        name: "Ada",
-        animal: "Ant",
-        place: "Accra",
-        thing: "Arrow",
-        food: "Apple"
-      },
-      "2026-02-08T00:00:20.000Z"
-    );
-    expect(hostSubmit.ok).toBe(true);
-    if (!hostSubmit.ok) {
-      return;
-    }
 
+    // Ada submits first — non-host, non-caller → round stays open.
     const adaSubmit = submitRoundAnswers(
-      hostSubmit.nextState,
+      afterCountdown,
       "p-ada",
       {
         name: "Ada",
@@ -320,18 +305,31 @@ describe("unit: room edge behavior", () => {
         thing: "Arrow",
         food: "Apricot"
       },
-      "2026-02-08T00:00:21.000Z"
+      "2026-02-08T00:00:20.000Z"
     );
     expect(adaSubmit.ok).toBe(true);
     if (!adaSubmit.ok) {
       return;
     }
 
-    const ended = endRoundManually(adaSubmit.nextState, "host", "2026-02-08T00:00:22.000Z");
+    // Host submits — under HOST_OR_CALLER, this ends the round.
+    const ended = submitRoundAnswers(
+      adaSubmit.nextState,
+      "host",
+      {
+        name: "Ada",
+        animal: "Ant",
+        place: "Accra",
+        thing: "Arrow",
+        food: "Apple"
+      },
+      "2026-02-08T00:00:21.000Z"
+    );
     expect(ended.ok).toBe(true);
     if (!ended.ok) {
       return;
     }
+    expect(ended.roundEnded).toBe(true);
 
     expectError(scoreRoundSubmission(ended.nextState, "host-token", 0, "host", {}), 400, "positive integer");
     expectError(scoreRoundSubmission(ended.nextState, "host-token", 1, "host", { name: true }), 400, "marks.animal");
@@ -461,7 +459,18 @@ describe("unit: room edge behavior", () => {
     expectError(updateRoundDraft(called.nextState, "host", {}, "2026-02-08T00:00:12.000Z"), 409, "countdown");
     expectError(updateRoundDraft(called.nextState, "ghost", {}, "2026-02-08T00:00:20.000Z"), 403, "not admitted");
 
-    const submitted = submitRoundAnswers(called.nextState, "host", {}, "2026-02-08T00:00:20.000Z");
+    // For the "already submitted" guard we need the round to stay open after
+    // host submits — use NONE policy so submission doesn't end the round.
+    const calledNoManual = callNumberForTurn(
+      createStartedState({ manualEndPolicy: "NONE" }),
+      "host",
+      9,
+      "2026-02-08T00:00:11.000Z"
+    );
+    if (!calledNoManual.ok) {
+      throw new Error("expected call to succeed");
+    }
+    const submitted = submitRoundAnswers(calledNoManual.nextState, "host", {}, "2026-02-08T00:00:20.000Z");
     if (!submitted.ok) {
       throw new Error("expected submit to succeed");
     }
@@ -539,11 +548,13 @@ describe("unit: game room durable object", () => {
     expect((await room.fetch(makeRequest("/draft", "POST", { participantId: "host", answers: { name: "Ava" } }))).status).toBe(200);
 
     expect((await room.fetch(makeRequest("/submit", "POST", {}))).status).toBe(400);
+    // Host submitting under default HOST_OR_CALLER policy ends the round.
     expect((await room.fetch(makeRequest("/submit", "POST", { participantId: "host", answers: { name: "Ava", animal: "Ant", place: "Accra", thing: "Arrow", food: "Apple" } }))).status).toBe(200);
+    expect(state.storage.deleteAlarmCalls).toBeGreaterThan(0);
 
     expect((await room.fetch(makeRequest("/end", "POST", {}))).status).toBe(400);
-    expect((await room.fetch(makeRequest("/end", "POST", { participantId: "host" }))).status).toBe(200);
-    expect(state.storage.deleteAlarmCalls).toBeGreaterThan(0);
+    // /end after the round already ended → 409 "no active round"
+    expect((await room.fetch(makeRequest("/end", "POST", { participantId: "host" }))).status).toBe(409);
 
     expect((await room.fetch(makeRequest("/score", "POST", {}))).status).toBe(400);
     expect((await room.fetch(makeRequest("/score", "POST", { hostToken: "host-token", roundNumber: 1 }))).status).toBe(400);
