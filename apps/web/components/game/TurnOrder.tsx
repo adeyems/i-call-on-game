@@ -1,4 +1,4 @@
-import type { RoomParticipant } from "@i-call-on/shared";
+import type { GameStatus, RoomParticipant } from "@i-call-on/shared";
 
 type Props = {
   turnOrder: string[];
@@ -6,6 +6,7 @@ type Props = {
   participantsById: Map<string, RoomParticipant>;
   currentParticipantId: string | null;
   letterPickCountdown: number | null;
+  gameStatus: GameStatus;
 };
 
 export function TurnOrder({
@@ -13,14 +14,54 @@ export function TurnOrder({
   currentTurnParticipantId,
   participantsById,
   currentParticipantId,
-  letterPickCountdown
+  letterPickCountdown,
+  gameStatus
 }: Props) {
+  const isMyTurn =
+    gameStatus === "IN_PROGRESS" &&
+    !!currentParticipantId &&
+    currentParticipantId === currentTurnParticipantId;
+
   const currentName =
     currentTurnParticipantId !== null
       ? participantsById.get(currentTurnParticipantId)?.name ?? "active caller"
-      : "active caller";
+      : null;
 
-  const isMyTurn = !!currentParticipantId && currentParticipantId === currentTurnParticipantId;
+  let headlineLabel: string;
+  let headlineName: string;
+  let hint: string;
+
+  if (gameStatus === "LOBBY") {
+    headlineLabel = "Status";
+    headlineName = "Waiting for host to start";
+    hint = "The game will begin when the host clicks start.";
+  } else if (gameStatus === "FINISHED") {
+    headlineLabel = "Game over";
+    headlineName = "Final scores";
+    hint = "No more turns.";
+  } else if (gameStatus === "CANCELLED") {
+    headlineLabel = "Status";
+    headlineName = "Room closed";
+    hint = "The host has disbanded the game.";
+  } else if (isMyTurn) {
+    headlineLabel = "Your turn";
+    headlineName = "Pick a letter";
+    hint =
+      letterPickCountdown !== null && letterPickCountdown > 0
+        ? `Auto-pick in ${letterPickCountdown}s if you don't choose.`
+        : "Pick a letter from the grid.";
+  } else if (currentName) {
+    headlineLabel = "Current turn";
+    headlineName = currentName;
+    hint =
+      letterPickCountdown !== null && letterPickCountdown > 0
+        ? `Auto-pick in ${letterPickCountdown}s.`
+        : "Waiting for them to pick a letter…";
+  } else {
+    headlineLabel = "Status";
+    headlineName = "Waiting…";
+    hint = "Waiting for the next turn.";
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -33,18 +74,13 @@ export function TurnOrder({
         ].join(" ")}
       >
         <p className="text-xs font-bold uppercase tracking-widest text-[var(--color-muted)]">
-          {isMyTurn ? "Your turn" : "Current turn"}
+          {headlineLabel}
         </p>
-        <p className="mt-1 font-display text-xl font-bold text-white">{currentName}</p>
-        <p className="mt-1 text-sm text-[var(--color-muted)]">
-          {isMyTurn
-            ? "Pick a letter from the grid."
-            : letterPickCountdown !== null && letterPickCountdown > 0
-            ? `Auto-pick in ${letterPickCountdown}s.`
-            : "Waiting for a letter to be called."}
-        </p>
+        <p className="mt-1 font-display text-xl font-bold text-white">{headlineName}</p>
+        <p className="mt-1 text-sm text-[var(--color-muted)]">{hint}</p>
       </div>
 
+      {turnOrder.length > 0 && gameStatus !== "LOBBY" ? (
       <div>
         <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-[var(--color-muted)]">
           Turn order
@@ -80,6 +116,7 @@ export function TurnOrder({
           })}
         </ol>
       </div>
+      ) : null}
     </div>
   );
 }

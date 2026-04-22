@@ -40,7 +40,6 @@ export function Leaderboard({ scoring, currentParticipantId }: Props) {
                 ? "border-[rgba(70,236,19,0.35)] bg-[linear-gradient(135deg,rgba(70,236,19,0.06),rgba(70,236,19,0.02))]"
                 : "border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))]"
             ].join(" ")}
-            style={{ animation: `slide-up 240ms ease backwards`, animationDelay: `${index * 60}ms` }}
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">

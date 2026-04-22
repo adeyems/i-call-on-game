@@ -4,13 +4,15 @@ import { useEffect, useState } from "react";
 
 /**
  * Returns a reactive `nowEpoch` value that only re-renders when the wall-clock
- * second changes — not on every animation frame or setInterval tick. Consumers
- * that format seconds-precision timers see one update per second at most.
+ * second changes. Returns 0 until mounted on the client — consumers should
+ * treat 0 as "not yet known" (display "--:--") to avoid SSG/hydration drift.
  */
 export function useNowTick(active: boolean): number {
-  const [nowEpoch, setNowEpoch] = useState(() => Date.now());
+  const [nowEpoch, setNowEpoch] = useState(0);
 
   useEffect(() => {
+    // Always prime nowEpoch on mount so first-render is accurate.
+    setNowEpoch(Date.now());
     if (!active) return;
 
     let lastSecond = Math.floor(Date.now() / 1000);
