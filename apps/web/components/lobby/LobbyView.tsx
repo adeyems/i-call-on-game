@@ -52,12 +52,12 @@ export function LobbyView({ roomCode }: { roomCode: string }) {
   useEffect(() => {
     if (!roomState || !session) return;
     if (roomState.game.status === "IN_PROGRESS") {
-      router.push(`/game/${roomCode}`);
+      router.push(`/game?code=${roomCode}`);
     }
   }, [roomState, session, router, roomCode]);
 
   const joinUrl = useMemo(
-    () => (typeof window !== "undefined" ? `${window.location.origin}/join/${roomCode}` : ""),
+    () => (typeof window !== "undefined" ? `${window.location.origin}/join?code=${roomCode}` : ""),
     [roomCode]
   );
 

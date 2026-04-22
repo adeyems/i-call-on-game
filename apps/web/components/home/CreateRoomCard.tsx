@@ -31,7 +31,7 @@ export function CreateRoomCard() {
         isHost: true,
         hostToken: room.hostToken
       });
-      router.push(`/lobby/${room.roomCode}`);
+      router.push(`/lobby?code=${room.roomCode}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create room. Please try again.");
       setSubmitting(false);

@@ -328,7 +328,7 @@ export function GameView({ roomCode }: { roomCode: string }) {
           <p className="mt-2 text-sm text-[var(--color-muted)]">
             You need a session for this room. Rejoin via the invite link.
           </p>
-          <Link href={`/join/${roomCode}`} className="btn-primary mt-6 inline-flex">
+          <Link href={`/join?code=${roomCode}`} className="btn-primary mt-6 inline-flex">
             Go to join page
           </Link>
         </div>

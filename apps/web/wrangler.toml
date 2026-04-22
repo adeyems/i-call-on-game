@@ -1,0 +1,12 @@
+name = "i-call-on-webapp"
+compatibility_date = "2026-04-17"
+workers_dev = true
+
+routes = [
+  { pattern = "icallon.cardgamelobby.com", custom_domain = true },
+  { pattern = "i-call-on.cardgamelobby.com", custom_domain = true }
+]
+
+[assets]
+directory = "./out"
+not_found_handling = "single-page-application"

@@ -31,7 +31,7 @@ export function JoinView({ roomCode }: { roomCode: string }) {
             participantName: event.participant.name,
             isHost: false
           });
-          router.push(`/game/${roomCode}`);
+          router.push(`/game?code=${roomCode}`);
         } else if (event.participant.status === "REJECTED") {
           requestIdRef.current = null;
           setPageState({
