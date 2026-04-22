@@ -45,8 +45,13 @@
     color: #fff;
   }
 
-  button, [role="button"] {
+  button:not(:disabled), [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
     touch-action: manipulation;
+  }
+
+  button:disabled, [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
   }
 
   ::selection {
