@@ -8,10 +8,11 @@ import { HomeLink } from "@/components/shared/HomeLink";
 export function JoinGate() {
   const params = useSearchParams();
   const code = params.get("code")?.trim().toUpperCase() ?? "";
+  const initialName = params.get("name") ?? "";
 
   if (!code) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center gap-4 px-6 py-12 text-center">
+      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 px-4 py-12 text-center">
         <HomeLink />
         <div className="card-glow p-8">
           <h1 className="text-2xl font-bold">No room code</h1>
@@ -26,5 +27,5 @@ export function JoinGate() {
     );
   }
 
-  return <JoinView roomCode={code} />;
+  return <JoinView roomCode={code} initialName={initialName} />;
 }

@@ -397,7 +397,7 @@ export function GameView({ roomCode }: { roomCode: string }) {
 
   return (
     <main className="min-h-screen px-4 py-6 sm:px-6 sm:py-10">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
         <HomeLink />
 
         <header className="card-glow flex flex-wrap items-start justify-between gap-4 p-5 sm:p-6">

@@ -28,7 +28,7 @@ export function LobbyView({ roomCode }: { roomCode: string }) {
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [action, setAction] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedTarget, setCopiedTarget] = useState<"link" | "code" | null>(null);
 
   // Round settings
   const [roundSeconds, setRoundSeconds] = useState(20);
@@ -77,13 +77,13 @@ export function LobbyView({ roomCode }: { roomCode: string }) {
     pendingParticipants.length === 0 &&
     roomState.counts.admitted >= 2;
 
-  const copyLink = async () => {
+  const copyToClipboard = async (target: "link" | "code", value: string) => {
     try {
-      await navigator.clipboard.writeText(joinUrl);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
+      await navigator.clipboard.writeText(value);
+      setCopiedTarget(target);
+      window.setTimeout(() => setCopiedTarget((prev) => (prev === target ? null : prev)), 1600);
     } catch {
-      setError("Couldn’t copy the link. Select and copy it manually.");
+      setError("Couldn’t copy to clipboard. Select the text and copy it manually.");
     }
   };
 
@@ -167,98 +167,112 @@ export function LobbyView({ roomCode }: { roomCode: string }) {
   }
 
   return (
-    <main className="min-h-screen px-4 py-8 sm:px-6 sm:py-12">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+    <main className="min-h-screen px-4 py-8 sm:py-12">
+      <div className="mx-auto flex w-full max-w-xl flex-col gap-5">
         <HomeLink />
 
-        <section className="card-glow p-6 sm:p-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-muted)]">
-                Lobby · {connectedClients} connected
-              </p>
-              <h1 className="gradient-title mt-1 text-3xl font-extrabold sm:text-4xl">
-                Room {roomCode}
-              </h1>
-              <p className="mt-1 text-sm text-[var(--color-muted)]">
-                Share the link below so players can join. Start when everyone’s in.
-              </p>
-            </div>
-            <button onClick={copyLink} className="btn-secondary">
-              {copied ? "✓ Copied" : "Copy invite link"}
-            </button>
-          </div>
+        <section className="card-glow p-5 sm:p-6 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--color-muted)]">
+            Lobby · {connectedClients} connected
+          </p>
+          <p className="mt-2 text-[11px] font-bold uppercase tracking-widest text-[var(--color-muted)]">
+            Room code
+          </p>
+          <button
+            type="button"
+            onClick={() => copyToClipboard("code", roomCode)}
+            className={[
+              "mt-1 inline-flex items-center gap-2 rounded-xl border px-5 py-2 font-display text-3xl font-extrabold tracking-[0.35em] transition-all sm:text-4xl",
+              copiedTarget === "code"
+                ? "border-[rgba(70,236,19,0.6)] bg-[rgba(70,236,19,0.1)] text-[var(--color-primary)]"
+                : "border-white/10 bg-white/[0.04] text-[var(--color-primary)] hover:border-[rgba(70,236,19,0.35)] hover:bg-[rgba(70,236,19,0.06)]"
+            ].join(" ")}
+            aria-label="Copy room code"
+            title="Click to copy the room code"
+          >
+            {roomCode}
+          </button>
+          <p className="mt-2 min-h-[1.25rem] text-xs text-[var(--color-muted)]">
+            {copiedTarget === "code"
+              ? "✓ Room code copied"
+              : "Tap the code to copy, or use the invite link below."}
+          </p>
 
-          <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black/40 px-4 py-3 font-mono text-sm text-[#bbf3a9]">
-            <span className="text-[var(--color-muted)]">{joinUrl.split(roomCode)[0]}</span>
-            <span className="font-bold text-[var(--color-primary)]">{roomCode}</span>
+          <div className="mt-4 grid gap-2">
+            <button
+              type="button"
+              onClick={() => copyToClipboard("link", joinUrl)}
+              className="btn-secondary w-full"
+              aria-label="Copy invite link"
+            >
+              {copiedTarget === "link" ? "✓ Invite link copied" : "Copy invite link"}
+            </button>
+            <div className="overflow-hidden rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-[var(--color-muted)]">
+              <span className="break-all font-mono">{joinUrl}</span>
+            </div>
           </div>
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-          <div className="flex flex-col gap-6">
-            <PendingList
-              participants={pendingParticipants}
-              actionKey={action}
-              onReview={review}
-            />
-            <AdmittedList
-              participants={admittedParticipants}
-              hostName={roomState?.meta.hostName ?? session?.participantName ?? "Host"}
-              maxPlayers={roomState?.meta.maxParticipants ?? 10}
-              actionKey={action}
-              onRemove={remove}
-            />
-          </div>
+        <div className="flex flex-col gap-5">
+          <PendingList
+            participants={pendingParticipants}
+            actionKey={action}
+            onReview={review}
+          />
+          <AdmittedList
+            participants={admittedParticipants}
+            hostName={roomState?.meta.hostName ?? session?.participantName ?? "Host"}
+            maxPlayers={roomState?.meta.maxParticipants ?? 10}
+            actionKey={action}
+            onRemove={remove}
+          />
 
-          <aside className="flex flex-col gap-6">
-            <RoundSettings
-              roundSeconds={roundSeconds}
-              onRoundSecondsChange={setRoundSeconds}
-              preset={roundEndPreset}
-              onPresetChange={setRoundEndPreset}
-              scoringMode={scoringMode}
-              onScoringModeChange={setScoringMode}
-              letterPickEnabled={letterPickEnabled}
-              onLetterPickEnabledChange={setLetterPickEnabled}
-              letterPickSeconds={letterPickSeconds}
-              onLetterPickSecondsChange={setLetterPickSeconds}
-            />
+          <RoundSettings
+            roundSeconds={roundSeconds}
+            onRoundSecondsChange={setRoundSeconds}
+            preset={roundEndPreset}
+            onPresetChange={setRoundEndPreset}
+            scoringMode={scoringMode}
+            onScoringModeChange={setScoringMode}
+            letterPickEnabled={letterPickEnabled}
+            onLetterPickEnabledChange={setLetterPickEnabled}
+            letterPickSeconds={letterPickSeconds}
+            onLetterPickSecondsChange={setLetterPickSeconds}
+          />
 
-            <section className="card-glow p-6">
-              {error ? (
-                <p className="mb-3 rounded-xl border border-[rgba(255,114,114,0.3)] bg-[rgba(255,114,114,0.08)] px-3 py-2 text-sm text-[var(--color-danger)]">
-                  {error}
-                </p>
-              ) : null}
+          <section className="card-glow p-5">
+            {error ? (
+              <p className="mb-3 rounded-xl border border-[rgba(255,114,114,0.3)] bg-[rgba(255,114,114,0.08)] px-3 py-2 text-sm text-[var(--color-danger)]">
+                {error}
+              </p>
+            ) : null}
 
-              <button
-                onClick={startGame}
-                className="btn-primary w-full"
-                disabled={!canStart || action === "start"}
-              >
-                {action === "start" ? "Starting…" : "Start game"}
-              </button>
-              {roomState && roomState.counts.admitted < 2 ? (
-                <p className="mt-2 text-xs text-[var(--color-muted)]">
-                  Need at least 2 players to start.
-                </p>
-              ) : null}
-              {pendingParticipants.length > 0 ? (
-                <p className="mt-2 text-xs text-[var(--color-muted)]">
-                  Review pending join requests first.
-                </p>
-              ) : null}
+            <button
+              onClick={startGame}
+              className="btn-primary w-full"
+              disabled={!canStart || action === "start"}
+            >
+              {action === "start" ? "Starting…" : "Start game"}
+            </button>
+            {roomState && roomState.counts.admitted < 2 ? (
+              <p className="mt-2 text-xs text-[var(--color-muted)]">
+                Need at least 2 players to start.
+              </p>
+            ) : null}
+            {pendingParticipants.length > 0 ? (
+              <p className="mt-2 text-xs text-[var(--color-muted)]">
+                Review pending join requests first.
+              </p>
+            ) : null}
 
-              <button
-                onClick={cancelGame}
-                className="btn-secondary mt-3 w-full"
-                disabled={action === "cancel"}
-              >
-                {action === "cancel" ? "Closing…" : "Close room"}
-              </button>
-            </section>
-          </aside>
+            <button
+              onClick={cancelGame}
+              className="btn-secondary mt-3 w-full"
+              disabled={action === "cancel"}
+            >
+              {action === "cancel" ? "Closing…" : "Close room"}
+            </button>
+          </section>
         </div>
       </div>
     </main>

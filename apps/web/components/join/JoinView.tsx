@@ -14,12 +14,13 @@ type PageState =
   | { kind: "waiting"; requestId: string }
   | { kind: "error"; message: string };
 
-export function JoinView({ roomCode }: { roomCode: string }) {
+export function JoinView({ roomCode, initialName = "" }: { roomCode: string; initialName?: string }) {
   const router = useRouter();
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialName);
   const [submitting, setSubmitting] = useState(false);
   const [pageState, setPageState] = useState<PageState>({ kind: "loading" });
   const requestIdRef = useRef<string | null>(null);
+  const autoSubmittedRef = useRef(false);
 
   const { state: roomState, connectedClients } = useRoomSocket({
     roomCode,
@@ -86,9 +87,8 @@ export function JoinView({ roomCode }: { roomCode: string }) {
     }
   }, [roomState, pageState.kind]);
 
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const trimmed = name.trim();
+  const submitJoin = async (candidateName: string) => {
+    const trimmed = candidateName.trim();
     if (trimmed.length < 2) {
       setPageState({ kind: "error", message: "Please enter a name (at least 2 characters)." });
       return;
@@ -110,14 +110,33 @@ export function JoinView({ roomCode }: { roomCode: string }) {
     }
   };
 
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await submitJoin(name);
+  };
+
+  // Auto-submit when arriving from home with a name pre-filled.
+  useEffect(() => {
+    if (
+      pageState.kind === "form" &&
+      initialName.trim().length >= 2 &&
+      !autoSubmittedRef.current &&
+      !submitting
+    ) {
+      autoSubmittedRef.current = true;
+      void submitJoin(initialName);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageState.kind]);
+
   const resetToForm = () => {
     requestIdRef.current = null;
     setPageState({ kind: "form" });
   };
 
   return (
-    <main className="min-h-screen px-4 py-10 sm:px-6 sm:py-14">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+    <main className="min-h-screen px-4 py-10 sm:py-14">
+      <div className="mx-auto flex w-full max-w-md flex-col gap-6">
         <HomeLink />
 
         <section className="card-glow p-6 sm:p-8">
