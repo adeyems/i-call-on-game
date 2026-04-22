@@ -136,7 +136,7 @@ export function JoinView({ roomCode, initialName = "" }: { roomCode: string; ini
 
   return (
     <main className="min-h-screen px-4 py-10 sm:py-14">
-      <div className="mx-auto flex w-full max-w-md flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
         <HomeLink />
 
         <section className="card-glow p-6 sm:p-8">

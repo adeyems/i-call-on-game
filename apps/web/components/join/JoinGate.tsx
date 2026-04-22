@@ -12,7 +12,7 @@ export function JoinGate() {
 
   if (!code) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 px-4 py-12 text-center">
+      <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center gap-4 px-4 py-12 text-center">
         <HomeLink />
         <div className="card-glow p-8">
           <h1 className="text-2xl font-bold">No room code</h1>

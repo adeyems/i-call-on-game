@@ -150,7 +150,7 @@ export function LobbyView({ roomCode }: { roomCode: string }) {
   // Not a host → redirect home
   if (sessionLoaded && (!session || !session.isHost)) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center gap-4 px-6 py-12 text-center">
+      <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-4 px-6 py-12 text-center">
         <HomeLink />
         <div className="card-glow p-8">
           <h1 className="text-2xl font-bold">Not your room</h1>
@@ -168,7 +168,7 @@ export function LobbyView({ roomCode }: { roomCode: string }) {
 
   return (
     <main className="min-h-screen px-4 py-8 sm:py-12">
-      <div className="mx-auto flex w-full max-w-xl flex-col gap-5">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
         <HomeLink />
 
         <section className="card-glow p-5 sm:p-6 text-center">
