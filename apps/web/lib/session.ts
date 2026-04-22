@@ -56,7 +56,11 @@ function draftKey(roomCode: string, participantId: string, roundNumber: number) 
   return `${DRAFT_PREFIX}${roomCode.toUpperCase()}:${participantId}:${roundNumber}`;
 }
 
-export function readDraft(roomCode: string, participantId: string, roundNumber: number) {
+export function readDraft(
+  roomCode: string,
+  participantId: string,
+  roundNumber: number
+): Record<string, string> | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(draftKey(roomCode, participantId, roundNumber));
@@ -70,7 +74,7 @@ export function writeDraft(
   roomCode: string,
   participantId: string,
   roundNumber: number,
-  answers: Record<string, string>
+  answers: object
 ): void {
   if (typeof window === "undefined") return;
   try {
