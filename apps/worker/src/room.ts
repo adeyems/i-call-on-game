@@ -1342,6 +1342,8 @@ export function endActiveRound(
     state.game.turnOrder.length === 0 ? 0 : (state.game.currentTurnIndex + 1) % state.game.turnOrder.length;
   const nextCompletedRounds = [...state.game.completedRounds, completedRound].slice(-MAX_COMPLETED_ROUNDS);
 
+  // Don't set letter-pick deadline yet — scoring must complete first.
+  // The deadline is re-armed when the host publishes the last pending round.
   return {
     ok: true,
     completedRound,
@@ -1352,9 +1354,7 @@ export function endActiveRound(
         currentTurnIndex: nextTurnIndex,
         activeRound: null,
         completedRounds: nextCompletedRounds,
-        letterPickDeadline: state.game.config.letterPickSeconds
-          ? new Date(new Date(nowIso).getTime() + state.game.config.letterPickSeconds * 1000).toISOString()
-          : null
+        letterPickDeadline: null
       }
     }
   };
@@ -1823,6 +1823,18 @@ export function publishRoundScores(
     index === roundIndex ? nextRound : completedRound
   );
 
+  // Re-arm letter-pick deadline if this was the last pending round and the
+  // game is still live. Without this, the caller would never get auto-picked.
+  const stillPending = nextCompletedRounds.some((r) => !r.scorePublishedAt);
+  const shouldArmDeadline =
+    !stillPending &&
+    !!state.game.config.letterPickSeconds &&
+    state.game.status === "IN_PROGRESS" &&
+    !state.game.activeRound;
+  const letterPickDeadline = shouldArmDeadline
+    ? new Date(new Date(nowIso).getTime() + state.game.config.letterPickSeconds! * 1000).toISOString()
+    : state.game.letterPickDeadline;
+
   return {
     ok: true,
     round: nextRound,
@@ -1830,7 +1842,8 @@ export function publishRoundScores(
       ...state,
       game: {
         ...state.game,
-        completedRounds: nextCompletedRounds
+        completedRounds: nextCompletedRounds,
+        letterPickDeadline
       }
     }
   };
@@ -1899,6 +1912,16 @@ export function discardRoundScores(
     index === roundIndex ? nextRound : completedRound
   );
 
+  const stillPending = nextCompletedRounds.some((r) => !r.scorePublishedAt);
+  const shouldArmDeadline =
+    !stillPending &&
+    !!state.game.config.letterPickSeconds &&
+    state.game.status === "IN_PROGRESS" &&
+    !state.game.activeRound;
+  const letterPickDeadline = shouldArmDeadline
+    ? new Date(new Date(nowIso).getTime() + state.game.config.letterPickSeconds! * 1000).toISOString()
+    : state.game.letterPickDeadline;
+
   return {
     ok: true,
     round: nextRound,
@@ -1906,7 +1929,8 @@ export function discardRoundScores(
       ...state,
       game: {
         ...state.game,
-        completedRounds: nextCompletedRounds
+        completedRounds: nextCompletedRounds,
+        letterPickDeadline
       }
     }
   };
@@ -2384,6 +2408,15 @@ export class GameRoom implements DurableObject {
       }
 
       await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
+
+      // If publish armed a new letter-pick deadline, schedule the alarm.
+      if (
+        result.nextState.game.letterPickDeadline &&
+        result.nextState.game.letterPickDeadline !== currentState.game.letterPickDeadline
+      ) {
+        await this.state.storage.setAlarm(new Date(result.nextState.game.letterPickDeadline).getTime());
+      }
+
       const snapshot = buildSnapshot(result.nextState);
       this.broadcast({ type: "round_scores_published", roundNumber: Number(payload.roundNumber), snapshot });
       return json(snapshot);
@@ -2410,6 +2443,14 @@ export class GameRoom implements DurableObject {
       }
 
       await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
+
+      if (
+        result.nextState.game.letterPickDeadline &&
+        result.nextState.game.letterPickDeadline !== currentState.game.letterPickDeadline
+      ) {
+        await this.state.storage.setAlarm(new Date(result.nextState.game.letterPickDeadline).getTime());
+      }
+
       const snapshot = buildSnapshot(result.nextState);
       this.broadcast({ type: "round_scores_discarded", roundNumber: Number(payload.roundNumber), snapshot });
       return json(snapshot);
