@@ -7,6 +7,7 @@ import type { ManualEndPolicy, RoomParticipant, RoundEndRule, ScoringMode } from
 import { api } from "@/lib/api";
 import { clearSession, readSession, writeSession, type RoomSession } from "@/lib/session";
 import { useRoomSocket } from "@/lib/useRoomSocket";
+import { playNotificationSound } from "@/lib/sound";
 import { PendingList } from "./PendingList";
 import { AdmittedList } from "./AdmittedList";
 import { RoundSettings, type RoundEndPreset } from "./RoundSettings";
@@ -45,7 +46,12 @@ export function LobbyView({ roomCode }: { roomCode: string }) {
 
   const { state: roomState, connectedClients } = useRoomSocket({
     roomCode,
-    participantId: session?.participantId
+    participantId: session?.participantId,
+    onEvent: (event) => {
+      if (event.type === "join_request") {
+        playNotificationSound();
+      }
+    }
   });
 
   // Navigate away when game starts (hosts stay, participants move to /game/[code])

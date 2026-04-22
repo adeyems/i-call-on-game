@@ -65,7 +65,15 @@ export function GameView({ roomCode }: { roomCode: string }) {
         setRoundAnswers(emptyAnswers());
         playTurnStartSound();
       }
-      if (event.type === "submission_received") playSubmissionSound();
+      if (event.type === "submission_received") {
+        playSubmissionSound();
+        // If the active caller just submitted, stop the timer song early
+        // (their round's going to end one way or another).
+        const activeCallerId = roomState?.game.activeRound?.turnParticipantId;
+        if (activeCallerId && event.participantId === activeCallerId) {
+          stopRoundTimerSong();
+        }
+      }
       if (event.type === "round_ended") {
         stopRoundTimerSong();
         playRoundEndSound();
@@ -75,6 +83,8 @@ export function GameView({ roomCode }: { roomCode: string }) {
         }
         setRoundAnswers(emptyAnswers());
       }
+      if (event.type === "round_scores_published") playNotificationSound();
+      if (event.type === "round_scores_discarded") playNotificationSound();
       if (event.type === "game_started") playNotificationSound();
       if (event.type === "game_cancelled") {
         stopRoundTimerSong();

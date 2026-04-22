@@ -5,6 +5,12 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "@/lib/api";
 import { writeSession } from "@/lib/session";
 import { useRoomSocket } from "@/lib/useRoomSocket";
+import {
+  playNotificationSound,
+  playRoundEndSound,
+  playSubmissionSound,
+  playTurnStartSound
+} from "@/lib/sound";
 import { HomeLink } from "@/components/shared/HomeLink";
 import { HowToPlay } from "@/components/home/HowToPlay";
 
@@ -32,6 +38,7 @@ export function JoinView({ roomCode, initialName = "" }: { roomCode: string; ini
             participantName: event.participant.name,
             isHost: false
           });
+          playNotificationSound();
           router.push(`/game?code=${roomCode}`);
         } else if (event.participant.status === "REJECTED") {
           requestIdRef.current = null;
@@ -66,6 +73,10 @@ export function JoinView({ roomCode, initialName = "" }: { roomCode: string; ini
           message: "This game has already ended."
         });
       }
+
+      if (event.type === "turn_called") playTurnStartSound();
+      if (event.type === "submission_received") playSubmissionSound();
+      if (event.type === "round_ended") playRoundEndSound();
     }
   });
 
