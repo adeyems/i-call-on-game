@@ -29,6 +29,7 @@ import { AnswerForm } from "./AnswerForm";
 import { Leaderboard } from "./Leaderboard";
 import { TurnOrder } from "./TurnOrder";
 import { ScoringPanel } from "./ScoringPanel";
+import { GameSettingsStrip } from "./GameSettingsStrip";
 
 function formatTimerDisplay(seconds: number | null): string {
   if (seconds === null || !Number.isFinite(seconds)) return "--:--";
@@ -493,9 +494,11 @@ export function GameView({ roomCode }: { roomCode: string }) {
         ) : null}
 
         {game.status === "IN_PROGRESS" || game.status === "FINISHED" ? (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <section className="flex flex-col gap-5">
-              <TimerCard
+          <>
+            <GameSettingsStrip config={game.config} />
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <section className="flex flex-col gap-5">
+                <TimerCard
                 label={sidebarTimer.label}
                 value={sidebarTimer.value}
                 hint={sidebarTimer.hint}
@@ -538,64 +541,29 @@ export function GameView({ roomCode }: { roomCode: string }) {
                 </div>
               ) : null}
 
-              {isHost && unpublishedRounds.length > 0 ? (
+              {unpublishedRounds.length > 0 ? (
                 <div className="flex flex-col gap-4">
-                  {unpublishedRounds.map((round) => (
-                    <ScoringPanel
-                      key={round.roundNumber}
-                      round={round}
-                      onMark={onMarkSubmission}
-                      onPublish={onPublishRound}
-                      onDiscard={onDiscardRound}
-                    />
-                  ))}
+                  {unpublishedRounds.map((round) =>
+                    isHost ? (
+                      <ScoringPanel
+                        key={round.roundNumber}
+                        mode="host"
+                        round={round}
+                        onMark={onMarkSubmission}
+                        onPublish={onPublishRound}
+                        onDiscard={onDiscardRound}
+                      />
+                    ) : (
+                      <ScoringPanel
+                        key={round.roundNumber}
+                        mode="readonly"
+                        round={round}
+                      />
+                    )
+                  )}
                 </div>
               ) : null}
 
-              {!isHost && unpublishedRounds.length > 0 ? (
-                <div className="card-glow p-5 text-center">
-                  <p className="text-sm font-semibold">Host is scoring the round…</p>
-                  <p className="mt-1 text-xs text-[var(--color-muted)]">
-                    Scores will publish shortly.
-                  </p>
-                </div>
-              ) : null}
-
-              <div className="card-glow p-4 text-xs text-[var(--color-muted)]">
-                <p className="mb-2 font-bold uppercase tracking-widest">Game settings</p>
-                <div className="grid gap-1 sm:grid-cols-2">
-                  <span>
-                    Round end:{" "}
-                    <strong className="text-[var(--color-ink)]">
-                      {game.config.endRule === "FIRST_SUBMISSION"
-                        ? "No timer — submit to end"
-                        : game.config.manualEndPolicy === "NONE"
-                        ? "Timer only"
-                        : game.config.manualEndPolicy === "CALLER_OR_TIMER" || game.config.manualEndPolicy === "CALLER_ONLY"
-                        ? "Caller or timer"
-                        : "Host or timer"}
-                    </strong>
-                  </span>
-                  {game.config.endRule !== "FIRST_SUBMISSION" ? (
-                    <span>
-                      Round timer:{" "}
-                      <strong className="text-[var(--color-ink)]">{game.config.roundSeconds}s</strong>
-                    </span>
-                  ) : null}
-                  <span>
-                    Scoring:{" "}
-                    <strong className="text-[var(--color-ink)]">
-                      {game.config.scoringMode === "SHARED_10" ? "Shared 10" : "Fixed 10/0"}
-                    </strong>
-                  </span>
-                  <span>
-                    Letter pick:{" "}
-                    <strong className="text-[var(--color-ink)]">
-                      {game.config.letterPickSeconds ? `Auto ${game.config.letterPickSeconds}s` : "Manual"}
-                    </strong>
-                  </span>
-                </div>
-              </div>
             </section>
 
             <aside className="flex flex-col gap-5">
@@ -616,6 +584,7 @@ export function GameView({ roomCode }: { roomCode: string }) {
               </div>
             </aside>
           </div>
+          </>
         ) : null}
 
         {showLetterModal && activeRound ? (
