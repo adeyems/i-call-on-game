@@ -139,7 +139,8 @@ function createStateAtFairRoundLimit(): StoredRoomState {
       currentTurnIndex: 0,
       activeRound: null,
       completedRounds,
-      letterPickDeadline: null
+      letterPickDeadline: null,
+      pendingHostTransferAt: null
     }
   };
 }

@@ -58,7 +58,7 @@ export function GameView({ roomCode }: { roomCode: string }) {
     setSessionLoaded(true);
   }, [roomCode]);
 
-  const { state: roomState, connectedClients } = useRoomSocket({
+  const { state: roomState, connectedClients, clockOffset, connectionState } = useRoomSocket({
     roomCode,
     participantId: session?.participantId,
     onEvent: (event) => {
@@ -128,7 +128,7 @@ export function GameView({ roomCode }: { roomCode: string }) {
   const needsTick =
     !!activeRound ||
     (letterPickDeadlineEpoch !== null && (activeRound === null || endsAtEpoch === null));
-  const nowEpoch = useNowTick(needsTick);
+  const nowEpoch = useNowTick(needsTick, clockOffset);
 
   // Treat nowEpoch === 0 as "not yet mounted on client" — avoid all time-based UI
   // until we know the real client time to prevent SSG/hydration drift.
@@ -355,9 +355,16 @@ export function GameView({ roomCode }: { roomCode: string }) {
   }
 
   if (!roomState) {
+    const message =
+      connectionState === "reconnecting"
+        ? "Reconnecting to game…"
+        : connectionState === "closed"
+        ? "Connection lost. Trying to reconnect…"
+        : "Connecting to game…";
     return (
-      <main className="mx-auto flex min-h-screen max-w-xl items-center justify-center px-6 py-12">
-        <p className="text-sm text-[var(--color-muted)]">Connecting to game…</p>
+      <main className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--color-primary)]" />
+        <p className="text-sm text-[var(--color-muted)]">{message}</p>
       </main>
     );
   }
@@ -415,6 +422,12 @@ export function GameView({ roomCode }: { roomCode: string }) {
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-muted)] sm:text-xs">
               Game · {connectedClients} connected
+              {connectionState === "reconnecting" || connectionState === "connecting" ? (
+                <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-[rgba(255,200,60,0.3)] bg-[rgba(255,200,60,0.08)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-warning)]">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-warning)]" />
+                  Reconnecting
+                </span>
+              ) : null}
             </p>
             <h1 className="gradient-title text-2xl font-extrabold sm:text-4xl">Room {roomCode}</h1>
             <p className="mt-0.5 text-xs text-[var(--color-muted)] sm:text-sm">

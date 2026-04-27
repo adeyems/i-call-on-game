@@ -165,7 +165,7 @@ export interface JoinRoomResponse {
 }
 
 export type RoomSocketEvent =
-  | { type: "connected" }
+  | { type: "connected"; serverTime?: string }
   | { type: "presence"; count: number }
   | { type: "snapshot"; snapshot: RoomStateResponse }
   | { type: "join_request"; participant: RoomParticipant; snapshot: RoomStateResponse }

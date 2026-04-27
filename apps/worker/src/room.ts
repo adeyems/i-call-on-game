@@ -103,6 +103,11 @@ export interface GameState {
   activeRound: ActiveRoundState | null;
   completedRounds: CompletedRoundState[];
   letterPickDeadline: string | null;
+  /**
+   * If set, the host has disconnected and a transfer to another player will
+   * happen at this timestamp unless the host reconnects first.
+   */
+  pendingHostTransferAt: string | null;
 }
 
 export interface StoredRoomState {
@@ -194,6 +199,7 @@ export interface RoomSnapshot {
     completedRounds: CompletedRoundSnapshot[];
     scoring: ScoringSummary;
     letterPickDeadline: string | null;
+    pendingHostTransferAt: string | null;
   };
 }
 
@@ -304,6 +310,8 @@ const DEFAULT_MANUAL_END_POLICY: ManualEndPolicy = "HOST_OR_CALLER";
 const DEFAULT_SCORING_MODE: ScoringMode = "FIXED_10";
 const MAX_COMPLETED_ROUNDS = 26;
 const ROUND_COUNTDOWN_SECONDS = 3;
+/** Grace period before transferring host to another player after disconnect. */
+const HOST_DISCONNECT_GRACE_MS = 30_000;
 const SCORE_PER_CORRECT_FIELD = 10;
 const ROUND_FIELDS = ["name", "animal", "place", "thing", "food"] as const;
 type RoundFieldKey = (typeof ROUND_FIELDS)[number];
@@ -842,7 +850,8 @@ export function buildSnapshot(state: StoredRoomState): RoomSnapshot {
       activeRound: state.game.activeRound ? toActiveRoundSnapshot(state.game.activeRound) : null,
       completedRounds: state.game.completedRounds.map(toCompletedRoundSnapshot),
       scoring: buildScoringSummary(state),
-      letterPickDeadline: state.game.letterPickDeadline ?? null
+      letterPickDeadline: state.game.letterPickDeadline ?? null,
+      pendingHostTransferAt: state.game.pendingHostTransferAt ?? null
     }
   };
 }
@@ -881,7 +890,8 @@ export function initializeRoomState(payload: RoomInitPayload, nowIso = new Date(
       currentTurnIndex: 0,
       activeRound: null,
       completedRounds: [],
-      letterPickDeadline: null
+      letterPickDeadline: null,
+      pendingHostTransferAt: null
     }
   };
 }
@@ -1180,7 +1190,8 @@ export function startGame(
         completedRounds: [],
         letterPickDeadline: configResult.config.letterPickSeconds
           ? new Date(new Date(nowIso).getTime() + configResult.config.letterPickSeconds * 1000).toISOString()
-          : null
+          : null,
+        pendingHostTransferAt: null
       }
     }
   };
@@ -2535,10 +2546,28 @@ export class GameRoom implements DurableObject {
       const tags = participantId ? [participantId] : [];
       this.state.acceptWebSocket(server, tags);
 
-      server.send(JSON.stringify({ type: "connected" }));
+      // Include server time so the client can compute a clock offset and avoid
+      // drift between devices with skewed local clocks.
+      server.send(JSON.stringify({ type: "connected", serverTime: new Date().toISOString() }));
+
       const currentState = await this.readRoomState();
       if (currentState) {
         server.send(JSON.stringify({ type: "snapshot", snapshot: buildSnapshot(currentState) }));
+
+        // If this is the host returning within the grace period, cancel any
+        // pending host transfer.
+        if (
+          participantId &&
+          currentState.game.pendingHostTransferAt &&
+          currentState.participants.some((p) => p.id === participantId && p.isHost)
+        ) {
+          await this.state.storage.put(ROOM_STORAGE_KEY, {
+            ...currentState,
+            game: { ...currentState.game, pendingHostTransferAt: null }
+          });
+          // Reset the alarm to whatever else is pending.
+          await this.rescheduleAlarm();
+        }
       }
       this.broadcastPresence();
 
@@ -2559,73 +2588,65 @@ export class GameRoom implements DurableObject {
 
     const now = Date.now();
 
-    // Case 1: Active round with a timer — end it when time is up.
-    if (currentState.game.activeRound) {
-      const activeRound = currentState.game.activeRound;
-      if (!activeRound.endsAt) {
-        return;
-      }
+    // Case 1: Pending host transfer.
+    if (
+      currentState.game.pendingHostTransferAt &&
+      now >= new Date(currentState.game.pendingHostTransferAt).getTime()
+    ) {
+      await this.executeHostTransfer();
+      // Continue — other reasons may also be due.
+    }
 
-      if (now < new Date(activeRound.endsAt).getTime()) {
-        await this.state.storage.setAlarm(new Date(activeRound.endsAt).getTime());
-        return;
-      }
-
-      const result = finalizeRoundWithForcedSubmissions(currentState, "TIMER");
-      if (!result.ok) {
-        return;
-      }
-
-      await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
-
-      // Schedule next alarm for letter-pick deadline if configured.
-      if (result.nextState.game.letterPickDeadline) {
-        await this.state.storage.setAlarm(new Date(result.nextState.game.letterPickDeadline).getTime());
-      } else {
-        await this.state.storage.deleteAlarm();
-      }
-
-      const snapshot = buildSnapshot(result.nextState);
-      this.broadcast({ type: "round_ended", reason: "TIMER", snapshot, completedRound: result.completedRound });
+    const refreshed = await this.readRoomState();
+    if (!refreshed || refreshed.game.status !== "IN_PROGRESS") {
+      await this.rescheduleAlarm();
       return;
     }
 
-    // Case 2: No active round — check letter-pick deadline for auto-pick.
-    const deadline = currentState.game.letterPickDeadline;
-    if (!deadline) {
+    // Case 2: Active round with a timer — end it when time is up.
+    if (refreshed.game.activeRound) {
+      const activeRound = refreshed.game.activeRound;
+      if (!activeRound.endsAt || now < new Date(activeRound.endsAt).getTime()) {
+        await this.rescheduleAlarm();
+        return;
+      }
+
+      const result = finalizeRoundWithForcedSubmissions(refreshed, "TIMER");
+      if (result.ok) {
+        await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
+        const snapshot = buildSnapshot(result.nextState);
+        this.broadcast({ type: "round_ended", reason: "TIMER", snapshot, completedRound: result.completedRound });
+      }
+      await this.rescheduleAlarm();
       return;
     }
 
-    if (now < new Date(deadline).getTime()) {
-      await this.state.storage.setAlarm(new Date(deadline).getTime());
+    // Case 3: No active round — check letter-pick deadline for auto-pick.
+    const deadline = refreshed.game.letterPickDeadline;
+    if (!deadline || now < new Date(deadline).getTime()) {
+      await this.rescheduleAlarm();
       return;
     }
 
-    const turnParticipantId = currentTurnParticipantId(currentState);
+    const turnParticipantId = currentTurnParticipantId(refreshed);
     if (!turnParticipantId) {
+      await this.rescheduleAlarm();
       return;
     }
 
-    const pickedNumber = randomUnusedNumber(currentState);
+    const pickedNumber = randomUnusedNumber(refreshed);
     if (pickedNumber === null) {
+      await this.rescheduleAlarm();
       return;
     }
 
-    const result = callNumberForTurn(currentState, turnParticipantId, pickedNumber);
-    if (!result.ok) {
-      return;
+    const result = callNumberForTurn(refreshed, turnParticipantId, pickedNumber);
+    if (result.ok) {
+      await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
+      const snapshot = buildSnapshot(result.nextState);
+      this.broadcast({ type: "turn_called", snapshot });
     }
-
-    await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
-
-    if (result.activeRound.endsAt) {
-      await this.state.storage.setAlarm(new Date(result.activeRound.endsAt).getTime());
-    } else {
-      await this.state.storage.deleteAlarm();
-    }
-
-    const snapshot = buildSnapshot(result.nextState);
-    this.broadcast({ type: "turn_called", snapshot });
+    await this.rescheduleAlarm();
   }
 
   webSocketMessage(_ws: WebSocket, message: string | ArrayBuffer): void {
@@ -2663,81 +2684,118 @@ export class GameRoom implements DurableObject {
       return;
     }
 
-    let currentState = await this.readRoomState();
+    const currentState = await this.readRoomState();
     if (!currentState || currentState.game.status !== "IN_PROGRESS") {
       return;
     }
 
-    // --- Host transfer ---
+    // --- Schedule host transfer with grace period ---
+    // Mobile browsers kill backgrounded WebSockets aggressively. Don't transfer
+    // host immediately — give them HOST_DISCONNECT_GRACE_MS to come back first.
     const wasHost = currentState.participants.some(
       (participant) => participant.id === disconnectedId && participant.isHost
     );
 
-    if (wasHost) {
-      const admitted = admittedParticipants(currentState).filter((participant) => !participant.isHost);
-      let newHostId: string | null = null;
-      for (const candidate of admitted) {
-        const sockets = this.state.getWebSockets(candidate.id);
-        if (sockets.length > 0) {
-          newHostId = candidate.id;
-          break;
-        }
+    if (wasHost && !currentState.game.pendingHostTransferAt) {
+      const transferAt = new Date(Date.now() + HOST_DISCONNECT_GRACE_MS).toISOString();
+      const nextState: StoredRoomState = {
+        ...currentState,
+        game: { ...currentState.game, pendingHostTransferAt: transferAt }
+      };
+      await this.state.storage.put(ROOM_STORAGE_KEY, nextState);
+      await this.rescheduleAlarm();
+      return;
+    }
+  }
+
+  /**
+   * Computes the soonest pending alarm across all reasons and (re)schedules it.
+   * If nothing is pending, the alarm is cleared.
+   */
+  private async rescheduleAlarm(): Promise<void> {
+    const state = await this.readRoomState();
+    if (!state) return;
+
+    const candidates: number[] = [];
+
+    if (state.game.activeRound?.endsAt) {
+      candidates.push(new Date(state.game.activeRound.endsAt).getTime());
+    }
+    if (!state.game.activeRound && state.game.letterPickDeadline) {
+      candidates.push(new Date(state.game.letterPickDeadline).getTime());
+    }
+    if (state.game.pendingHostTransferAt) {
+      candidates.push(new Date(state.game.pendingHostTransferAt).getTime());
+    }
+
+    if (candidates.length === 0) {
+      await this.state.storage.deleteAlarm();
+      return;
+    }
+
+    const next = Math.min(...candidates);
+    await this.state.storage.setAlarm(next);
+  }
+
+  /**
+   * Executes a host transfer to the first admitted non-host participant with
+   * an active socket. No-op if no eligible candidate exists.
+   */
+  private async executeHostTransfer(): Promise<void> {
+    if (typeof this.state.getWebSockets !== "function") return;
+
+    const currentState = await this.readRoomState();
+    if (!currentState) return;
+
+    // Clear the pending flag regardless of whether the transfer succeeds — we
+    // don't want to retry forever on a stable disconnected state.
+    let nextState: StoredRoomState = {
+      ...currentState,
+      game: { ...currentState.game, pendingHostTransferAt: null }
+    };
+
+    // If the host has reconnected since we scheduled this, just clear the flag.
+    const host = currentState.participants.find((p) => p.isHost);
+    if (host && this.state.getWebSockets(host.id).length > 0) {
+      await this.state.storage.put(ROOM_STORAGE_KEY, nextState);
+      return;
+    }
+
+    const admitted = admittedParticipants(currentState).filter((p) => !p.isHost);
+    let newHostId: string | null = null;
+    for (const candidate of admitted) {
+      const sockets = this.state.getWebSockets(candidate.id);
+      if (sockets.length > 0) {
+        newHostId = candidate.id;
+        break;
       }
-
-      if (newHostId) {
-        const newToken = crypto.randomUUID();
-        const result = transferHost(currentState, newHostId, newToken);
-        if (result.ok) {
-          currentState = result.nextState;
-          await this.state.storage.put(ROOM_STORAGE_KEY, currentState);
-
-          const newHostSockets = this.state.getWebSockets(newHostId);
-          const tokenMessage = JSON.stringify({ type: "host_transferred", hostToken: newToken });
-          for (const socket of newHostSockets) {
-            socket.send(tokenMessage);
-          }
-
-          const snapshot = buildSnapshot(currentState);
-          this.broadcast({ type: "host_transferred", snapshot });
-        }
-      }
     }
 
-    // --- Turn skip: if it was this player's turn to pick a letter, auto-advance ---
-    const turnId = currentTurnParticipantId(currentState);
-    if (turnId !== disconnectedId) {
+    if (!newHostId) {
+      // No eligible heir — keep the room as-is with the (currently disconnected)
+      // host so they can resume when they come back.
+      await this.state.storage.put(ROOM_STORAGE_KEY, nextState);
       return;
     }
 
-    // Only skip if we're waiting for a letter pick (no active round).
-    if (currentState.game.activeRound) {
+    const newToken = crypto.randomUUID();
+    const result = transferHost(nextState, newHostId, newToken);
+    if (!result.ok) {
+      await this.state.storage.put(ROOM_STORAGE_KEY, nextState);
       return;
     }
 
-    // If letter-pick timer is configured it will handle this via alarm; skip only when there's no timer.
-    if (currentState.game.config.letterPickSeconds) {
-      return;
+    nextState = result.nextState;
+    await this.state.storage.put(ROOM_STORAGE_KEY, nextState);
+
+    const newHostSockets = this.state.getWebSockets(newHostId);
+    const tokenMessage = JSON.stringify({ type: "host_transferred", hostToken: newToken });
+    for (const socket of newHostSockets) {
+      socket.send(tokenMessage);
     }
 
-    // Advance to the next connected player's turn by auto-picking a random letter.
-    const pickedNumber = randomUnusedNumber(currentState);
-    if (pickedNumber === null) {
-      return;
-    }
-
-    const callResult = callNumberForTurn(currentState, disconnectedId, pickedNumber);
-    if (!callResult.ok) {
-      return;
-    }
-
-    await this.state.storage.put(ROOM_STORAGE_KEY, callResult.nextState);
-
-    if (callResult.activeRound.endsAt) {
-      await this.state.storage.setAlarm(new Date(callResult.activeRound.endsAt).getTime());
-    }
-
-    const snapshot = buildSnapshot(callResult.nextState);
-    this.broadcast({ type: "turn_called", snapshot });
+    const snapshot = buildSnapshot(nextState);
+    this.broadcast({ type: "host_transferred", snapshot });
   }
 
   private async readRoomState(): Promise<StoredRoomState | null> {

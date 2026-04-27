@@ -311,7 +311,8 @@ describe("unit: lobby state logic", () => {
         currentTurnIndex: 0,
         activeRound: null,
         completedRounds: [],
-        letterPickDeadline: null
+        letterPickDeadline: null,
+        pendingHostTransferAt: null
       }
     };
 
