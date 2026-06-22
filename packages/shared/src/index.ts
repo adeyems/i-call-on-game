@@ -194,3 +194,15 @@ export const LETTERS = Array.from({ length: 26 }, (_, i) => ({
 export function emptyAnswers(): RoundAnswerInput {
   return { name: "", animal: "", place: "", thing: "", food: "" };
 }
+
+/**
+ * Formats a score for display: rounds to at most 2 decimal places and strips
+ * trailing zeros (so 40 → "40", 3.3333… → "3.33", 6.6667 → "6.67").
+ *
+ * Scores are stored at full precision so SHARED_10 division (e.g. 10/3) never
+ * loses information and cumulative totals don't drift from rounding at each
+ * step. The approximation happens ONLY here, at the moment of display.
+ */
+export function formatScore(value: number): string {
+  return (Math.round(value * 100) / 100).toString();
+}

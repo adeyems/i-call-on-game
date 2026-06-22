@@ -605,10 +605,6 @@ function normalizeMarks(input: Partial<RoundMarks>): { ok: true; marks: RoundMar
   };
 }
 
-function roundScoreValue(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
 function answerKeyForField(submission: RoundSubmission, field: RoundFieldKey): string {
   return normalizeTextAnswer(submission.answers[field]).toLowerCase();
 }
@@ -645,7 +641,9 @@ function fieldScoreForSubmission(
     return 0;
   }
 
-  return roundScoreValue(SCORE_PER_CORRECT_FIELD / matchingCorrectCount);
+  // Keep full precision (e.g. 10/3 = 3.3333…). Rounding happens only at display
+  // time so cumulative totals don't drift from rounding at each step.
+  return SCORE_PER_CORRECT_FIELD / matchingCorrectCount;
 }
 
 function buildFieldScoresForSubmission(
@@ -662,7 +660,7 @@ function buildFieldScoresForSubmission(
     total: 0
   };
 
-  scores.total = roundScoreValue(scores.name + scores.animal + scores.place + scores.thing + scores.food);
+  scores.total = scores.name + scores.animal + scores.place + scores.thing + scores.food;
   return scores;
 }
 
@@ -1854,9 +1852,15 @@ export function publishRoundScores(
 
   // Re-arm letter-pick deadline if this was the last pending round and the
   // game is still live. Without this, the caller would never get auto-picked.
+  // Crucially, do NOT arm it once the game has reached its fair-rounds cap:
+  // no further round can be called, so the deadline would be unsatisfiable and
+  // the alarm would reschedule itself onto the same past timestamp forever.
   const stillPending = nextCompletedRounds.some((r) => !r.scorePublishedAt);
+  const limits = scoringLimits(state);
+  const reachedMaxRounds = limits.maxRounds > 0 && nextCompletedRounds.length >= limits.maxRounds;
   const shouldArmDeadline =
     !stillPending &&
+    !reachedMaxRounds &&
     !!state.game.config.letterPickSeconds &&
     state.game.status === "IN_PROGRESS" &&
     !state.game.activeRound;
@@ -2629,22 +2633,26 @@ export class GameRoom implements DurableObject {
     }
 
     const turnParticipantId = currentTurnParticipantId(refreshed);
-    if (!turnParticipantId) {
-      await this.rescheduleAlarm();
-      return;
-    }
+    const pickedNumber = turnParticipantId ? randomUnusedNumber(refreshed) : null;
+    const result =
+      turnParticipantId && pickedNumber !== null
+        ? callNumberForTurn(refreshed, turnParticipantId, pickedNumber)
+        : null;
 
-    const pickedNumber = randomUnusedNumber(refreshed);
-    if (pickedNumber === null) {
-      await this.rescheduleAlarm();
-      return;
-    }
-
-    const result = callNumberForTurn(refreshed, turnParticipantId, pickedNumber);
-    if (result.ok) {
+    if (result?.ok) {
       await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
       const snapshot = buildSnapshot(result.nextState);
       this.broadcast({ type: "turn_called", snapshot });
+    } else {
+      // The deadline has passed but can't be satisfied (game complete, no free
+      // letters left, no current turn, or the call was otherwise rejected).
+      // Clear it so rescheduleAlarm() doesn't re-arm the same already-past
+      // timestamp and spin the alarm forever. This is the safety net that stops
+      // a runaway alarm loop regardless of how the bad deadline got armed.
+      await this.state.storage.put(ROOM_STORAGE_KEY, {
+        ...refreshed,
+        game: { ...refreshed.game, letterPickDeadline: null }
+      });
     }
     await this.rescheduleAlarm();
   }

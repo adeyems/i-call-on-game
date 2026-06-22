@@ -145,6 +145,93 @@ function createStateAtFairRoundLimit(): StoredRoomState {
   };
 }
 
+// 10 admitted players → roundsPerPlayer 2 → maxRounds 20. Builds 19 published
+// rounds plus a 20th that is fully reviewed but not yet published, so a single
+// publishRoundScores call finishes the game's final fair round.
+function createStateAtFinalFairRoundPendingReview(opts: { letterPickSeconds: number }): StoredRoomState {
+  const base = initializeRoomState(
+    {
+      roomCode: "ROUNDFIN",
+      hostName: "Host",
+      maxParticipants: 10,
+      hostToken: "host-token"
+    },
+    "2026-02-08T00:00:00.000Z"
+  );
+
+  const extraParticipants = Array.from({ length: 9 }, (_, index) => ({
+    id: `p-${index + 1}`,
+    name: `Player ${index + 1}`,
+    status: "ADMITTED" as const,
+    isHost: false,
+    createdAt: `2026-02-08T00:00:${String(index + 1).padStart(2, "0")}.000Z`,
+    updatedAt: `2026-02-08T00:00:${String(index + 1).padStart(2, "0")}.000Z`
+  }));
+
+  const participants = [...base.participants, ...extraParticipants];
+  const turnOrder = participants.map((participant) => participant.id);
+
+  const completedRounds = Array.from({ length: 20 }, (_, index) => {
+    const number = index + 1;
+    const isFinal = number === 20;
+    return {
+      roundNumber: number,
+      turnParticipantId: turnOrder[index % turnOrder.length],
+      turnParticipantName: participants[index % participants.length].name,
+      calledNumber: number,
+      activeLetter: String.fromCharCode(64 + number),
+      startedAt: "2026-02-08T00:01:00.000Z",
+      countdownEndsAt: "2026-02-08T00:01:03.000Z",
+      endsAt: "2026-02-08T00:01:20.000Z",
+      endedAt: "2026-02-08T00:01:20.000Z",
+      endReason: "TIMER" as const,
+      // Final round is pending publication; earlier rounds are already published.
+      scorePublishedAt: isFinal ? null : "2026-02-08T00:01:25.000Z",
+      drafts: {},
+      submissions: participants.map((participant) => ({
+        participantId: participant.id,
+        participantName: participant.name,
+        answers: { name: "", animal: "", place: "", thing: "", food: "" },
+        submittedAt: "2026-02-08T00:01:18.000Z",
+        // Final round must be fully reviewed for publish to succeed.
+        review: isFinal
+          ? {
+              marks: { name: false, animal: false, place: false, thing: false, food: false },
+              scores: { name: 0, animal: 0, place: 0, thing: 0, food: 0, total: 0 },
+              markedByParticipantId: "host",
+              markedByParticipantName: "Host",
+              markedAt: "2026-02-08T00:10:00.000Z"
+            }
+          : null
+      }))
+    };
+  });
+
+  return {
+    ...base,
+    participants,
+    game: {
+      status: "IN_PROGRESS",
+      startedAt: "2026-02-08T00:00:10.000Z",
+      cancelledAt: null,
+      finishedAt: null,
+      config: {
+        roundSeconds: 12,
+        endRule: "TIMER",
+        manualEndPolicy: "HOST_OR_CALLER",
+        scoringMode: "FIXED_10",
+        letterPickSeconds: opts.letterPickSeconds
+      },
+      turnOrder,
+      currentTurnIndex: 0,
+      activeRound: null,
+      completedRounds,
+      letterPickDeadline: null,
+      pendingHostTransferAt: null
+    }
+  };
+}
+
 describe("unit: round flow logic", () => {
   it("builds turn order from admitted participants in join order", () => {
     const state = initializeRoomState(
@@ -620,6 +707,30 @@ describe("unit: round flow logic", () => {
     }
   });
 
+  it("does not arm a letter-pick deadline when the final fair round is published", () => {
+    // Regression: publishing the last round of an auto-letter-pick game used to
+    // arm a deadline even though no further round can be called. The alarm would
+    // then fire, fail to call a number ("maximum fair rounds reached"), leave the
+    // past deadline in place, and reschedule onto it forever — a runaway loop.
+    const state = createStateAtFinalFairRoundPendingReview({ letterPickSeconds: 30 });
+
+    const published = publishRoundScores(state, "host-token", 20, "2026-02-08T00:11:00.000Z");
+    expect(published.ok).toBe(true);
+    if (!published.ok) {
+      return;
+    }
+
+    // No deadline armed → the alarm has nothing to spin on once the game is over.
+    expect(published.nextState.game.letterPickDeadline).toBeNull();
+
+    // And no new round can be called, confirming the deadline would be unsatisfiable.
+    const blocked = callNumberForTurn(published.nextState, "host", 21, "2026-02-08T00:11:30.000Z");
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) {
+      expect(blocked.error).toBe("maximum fair rounds reached");
+    }
+  });
+
   it("allows host to score a submission with 10/0 per field", () => {
     const started = createStartedState({ endRule: "TIMER" });
     const called = callNumberForTurn(started, "host", 3, "2026-02-08T00:00:11.000Z");
@@ -767,6 +878,63 @@ describe("unit: round flow logic", () => {
       food: 10,
       total: 40
     });
+  });
+
+  it("stores SHARED_10 scores at full precision (rounding is for display only)", () => {
+    // Three players give the same correct answer for one field → 10/3 each.
+    // The stored value must stay precise (3.3333…), never pre-rounded to 3.33,
+    // so cumulative totals don't drift. Display rounding happens in the UI.
+    const base = initializeRoomState(
+      { roomCode: "SHARE3", hostName: "Host", maxParticipants: 6, hostToken: "host-token" },
+      "2026-02-08T00:00:00.000Z"
+    );
+    const withPlayers: StoredRoomState = {
+      ...base,
+      participants: [
+        ...base.participants,
+        { id: "p-ada", name: "Ada", status: "ADMITTED", isHost: false, createdAt: "2026-02-08T00:00:01.000Z", updatedAt: "2026-02-08T00:00:01.000Z" },
+        { id: "p-ben", name: "Ben", status: "ADMITTED", isHost: false, createdAt: "2026-02-08T00:00:02.000Z", updatedAt: "2026-02-08T00:00:02.000Z" }
+      ]
+    };
+
+    const started = startGame(withPlayers, "host-token", { roundSeconds: 12, endRule: "TIMER", scoringMode: "SHARED_10" }, "2026-02-08T00:00:10.000Z");
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const called = callNumberForTurn(started.nextState, "host", 1, "2026-02-08T00:00:11.000Z");
+    expect(called.ok).toBe(true);
+    if (!called.ok) return;
+
+    // Non-callers submit first (round stays open), caller/host submits last → ends.
+    const sameName = { name: "Ada", animal: "", place: "", thing: "", food: "" };
+    const ada = submitRoundAnswers(called.nextState, "p-ada", sameName, "2026-02-08T00:00:15.000Z");
+    expect(ada.ok).toBe(true);
+    if (!ada.ok) return;
+    const ben = submitRoundAnswers(ada.nextState, "p-ben", sameName, "2026-02-08T00:00:16.000Z");
+    expect(ben.ok).toBe(true);
+    if (!ben.ok) return;
+    const host = submitRoundAnswers(ben.nextState, "host", sameName, "2026-02-08T00:00:17.000Z");
+    expect(host.ok).toBe(true);
+    if (!host.ok) return;
+    expect(host.roundEnded).toBe(true);
+
+    // Mark only "name" correct for all three → shared 3 ways.
+    const onlyName = { name: true, animal: false, place: false, thing: false, food: false };
+    let state = host.nextState;
+    for (const [i, pid] of (["host", "p-ada", "p-ben"] as const).entries()) {
+      const scored = scoreRoundSubmission(state, "host-token", 1, pid, onlyName, `2026-02-08T00:00:3${i}.000Z`);
+      expect(scored.ok).toBe(true);
+      if (!scored.ok) return;
+      state = scored.nextState;
+    }
+
+    const review = state.game.completedRounds[0].submissions.find((s) => s.participantId === "host")?.review;
+    expect(review?.scores.name).toBeCloseTo(10 / 3, 10);
+    expect(review?.scores.total).toBeCloseTo(10 / 3, 10);
+    // Crucially NOT pre-rounded to 2dp in storage.
+    expect(review?.scores.name).not.toBe(3.33);
+    // But the value rounds cleanly to "3.33" for display.
+    expect((Math.round((review?.scores.name ?? 0) * 100) / 100).toString()).toBe("3.33");
   });
 
   it("does not publish a round until every submission is reviewed", () => {

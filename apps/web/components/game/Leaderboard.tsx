@@ -1,4 +1,4 @@
-import type { ScoringSummary } from "@i-call-on/shared";
+import { formatScore, type ScoringSummary } from "@i-call-on/shared";
 
 type Props = {
   scoring: ScoringSummary;
@@ -54,12 +54,12 @@ export function Leaderboard({ scoring, currentParticipantId }: Props) {
                 </span>
               </div>
               <strong className="flex-none font-display text-xl font-extrabold tabular-nums text-[var(--color-primary)]">
-                {entry.totalScore}
+                {formatScore(entry.totalScore)}
               </strong>
             </div>
             {entry.history.length > 0 ? (
               <p className="mt-1.5 line-clamp-2 text-xs text-[#9fb3a8]">
-                {entry.history.map((h) => `R${h.roundNumber} ${h.activeLetter}:${h.score}`).join(" · ")}
+                {entry.history.map((h) => `R${h.roundNumber} ${h.activeLetter}:${formatScore(h.score)}`).join(" · ")}
               </p>
             ) : null}
           </li>

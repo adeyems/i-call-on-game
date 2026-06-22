@@ -1,6 +1,6 @@
 "use client";
 
-import { ROUND_FIELDS, type CompletedRoundSnapshot, type RoundField, type RoundMarks } from "@i-call-on/shared";
+import { ROUND_FIELDS, formatScore, type CompletedRoundSnapshot, type RoundField, type RoundMarks } from "@i-call-on/shared";
 import { useState } from "react";
 
 const FIELD_LABELS: Record<RoundField, string> = {
@@ -179,7 +179,7 @@ export function ScoringPanel(props: Props) {
                       : "border-white/10 bg-white/[0.03] text-[var(--color-muted)]"
                   ].join(" ")}
                 >
-                  {reviewed ? total : "—"}
+                  {reviewed ? formatScore(total) : "—"}
                 </span>
               </header>
 
@@ -361,7 +361,7 @@ export function ScoringPanel(props: Props) {
                   })}
                   <td className="rounded-r-xl border-y border-r border-white/10 bg-white/[0.02] px-3 py-2 text-right">
                     <span className="font-display font-bold text-[var(--color-primary)]">
-                      {reviewed ? total : "—"}
+                      {reviewed ? formatScore(total) : "—"}
                     </span>
                   </td>
                 </tr>
