@@ -189,7 +189,7 @@ describe("unit: room edge behavior", () => {
 
     const started = createStartedState();
     const joinExpired = createJoinRequest(started, "Kai");
-    expectError(joinExpired, 410, "already in progress");
+    expectError(joinExpired, 410, "already started");
 
     const pendingState: StoredRoomState = {
       ...createLobbyState(),

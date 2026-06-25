@@ -326,6 +326,14 @@ const MAX_COMPLETED_ROUNDS = 26;
 const ROUND_COUNTDOWN_SECONDS = 3;
 /** Grace period before transferring host to another player after disconnect. */
 const HOST_DISCONNECT_GRACE_MS = 30_000;
+/**
+ * Card Game Lobby "still alive" ping interval. While a room is in the lobby
+ * phase, looking for players, and has at least one live connection, the DO
+ * alarm re-advertises it on this cadence so the platform's Live feed (≈3 min
+ * TTL) keeps it. When the room is abandoned (host closes the tab / crash), the
+ * pings stop and the entry self-heals out of the feed within the TTL.
+ */
+const LOBBY_HEARTBEAT_MS = 60_000;
 const SCORE_PER_CORRECT_FIELD = 10;
 const ROUND_FIELDS = ["name", "animal", "place", "thing", "food"] as const;
 type RoundFieldKey = (typeof ROUND_FIELDS)[number];
@@ -921,7 +929,7 @@ export function createJoinRequest(
     return {
       ok: false,
       status: 410,
-      error: "This game is already in progress. Ask the host for the next game!"
+      error: "This game has already started — find another table to join."
     };
   }
 
@@ -2314,8 +2322,11 @@ export class GameRoom implements DurableObject {
             this.callLobbyApi("/v1/lobbies", body)
           ])
         );
+        // Start the "still alive" heartbeat so the feed entry persists.
+        await this.scheduleHeartbeat();
       } else if (!payload.enabled && wasLooking) {
         this.removeFromLobby(result.nextState);
+        // Heartbeat is left to lapse on its next fire (looking is now off).
       }
 
       return json(snapshot);
@@ -2680,6 +2691,12 @@ export class GameRoom implements DurableObject {
           // Reset the alarm to whatever else is pending.
           await this.rescheduleAlarm();
         }
+
+        // Resume the lobby heartbeat if it lapsed while everyone was away
+        // (e.g. the host's mobile browser dropped the socket and reconnected).
+        if (currentState.game.status === "LOBBY" && currentState.game.lookingForPlayers) {
+          await this.scheduleHeartbeat();
+        }
       }
       this.broadcastPresence();
 
@@ -2694,7 +2711,24 @@ export class GameRoom implements DurableObject {
 
   async alarm(): Promise<void> {
     const currentState = await this.readRoomState();
-    if (!currentState || currentState.game.status !== "IN_PROGRESS") {
+    if (!currentState) {
+      return;
+    }
+
+    // Lobby phase: Card Game Lobby heartbeat. Keep re-advertising the room
+    // while it's looking AND someone is still connected. If the room has been
+    // abandoned (no live sockets), stop pinging and let the alarm lapse so the
+    // platform's feed TTL drops the ghost entry on its own.
+    if (currentState.game.status === "LOBBY") {
+      if (currentState.game.lookingForPlayers && this.hasLiveConnections()) {
+        await this.callLobbyApi("/v1/lobbies", this.lobbyBody(currentState));
+        await this.state.storage.setAlarm(Date.now() + LOBBY_HEARTBEAT_MS);
+      }
+      return;
+    }
+
+    if (currentState.game.status !== "IN_PROGRESS") {
+      // CANCELLED / FINISHED — nothing left to schedule.
       return;
     }
 
@@ -2967,6 +3001,24 @@ export class GameRoom implements DurableObject {
   /** Pull the room from the Live feed (used on disable / start / cancel). */
   private removeFromLobby(state: StoredRoomState): void {
     this.background(this.callLobbyApi("/v1/lobbies/remove", { roomCode: state.meta.roomCode }));
+  }
+
+  /** True if at least one socket is connected (defaults to true if unknown). */
+  private hasLiveConnections(): boolean {
+    if (typeof this.state.getWebSockets !== "function") return true;
+    return this.state.getWebSockets().length > 0;
+  }
+
+  /**
+   * Arm the lobby heartbeat alarm ~60s out, without clobbering an alarm that is
+   * already pending sooner. Safe to call repeatedly (idempotent-ish).
+   */
+  private async scheduleHeartbeat(): Promise<void> {
+    const next = Date.now() + LOBBY_HEARTBEAT_MS;
+    const existing = await this.state.storage.getAlarm();
+    if (existing === null || existing > next) {
+      await this.state.storage.setAlarm(next);
+    }
   }
 
   private async readRoomState(): Promise<StoredRoomState | null> {
