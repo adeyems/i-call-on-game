@@ -155,6 +155,7 @@ export interface RoomStateResponse {
     completedRounds: CompletedRoundSnapshot[];
     scoring: ScoringSummary;
     letterPickDeadline: string | null;
+    lookingForPlayers: boolean;
   };
 }
 
@@ -179,6 +180,7 @@ export type RoomSocketEvent =
   | { type: "round_scores_discarded"; roundNumber: number; snapshot: RoomStateResponse }
   | { type: "game_cancelled"; snapshot: RoomStateResponse }
   | { type: "game_ended"; snapshot: RoomStateResponse }
+  | { type: "looking_updated"; snapshot: RoomStateResponse }
   | { type: "participant_removed"; participant: RoomParticipant; snapshot: RoomStateResponse }
   | { type: "host_transferred"; snapshot?: RoomStateResponse; hostToken?: string }
   | { type: "event"; payload: unknown };

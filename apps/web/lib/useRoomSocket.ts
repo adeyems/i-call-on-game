@@ -37,6 +37,7 @@ function snapshotFromEvent(event: RoomSocketEvent): RoomStateResponse | null {
     event.type === "round_scores_discarded" ||
     event.type === "game_cancelled" ||
     event.type === "game_ended" ||
+    event.type === "looking_updated" ||
     (event.type === "host_transferred" && event.snapshot)
   ) {
     return (event as { snapshot?: RoomStateResponse }).snapshot ?? null;

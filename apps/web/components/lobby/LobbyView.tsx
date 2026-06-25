@@ -139,6 +139,20 @@ export function LobbyView({ roomCode }: { roomCode: string }) {
     }
   };
 
+  const toggleLooking = async () => {
+    if (!session?.hostToken || !roomState) return;
+    const next = !roomState.game.lookingForPlayers;
+    setAction("looking");
+    setError(null);
+    try {
+      await api.setLookingForPlayers(roomCode, session.hostToken, next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn’t update room visibility.");
+    } finally {
+      setAction(null);
+    }
+  };
+
   const cancelGame = async () => {
     if (!session?.hostToken) return;
     setAction("cancel");
@@ -220,6 +234,44 @@ export function LobbyView({ roomCode }: { roomCode: string }) {
         </section>
 
         <div className="flex flex-col gap-5">
+          <section className="card-glow p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-semibold text-white">🔔 Looking for players</p>
+                <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+                  Announce this table on Card Game Lobby — sends a push and lists it in the app’s Live
+                  feed. Off by default; turn off any time to make the room private again.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={roomState?.game.lookingForPlayers ?? false}
+                aria-label="Toggle looking for players"
+                onClick={toggleLooking}
+                disabled={!roomState || action === "looking"}
+                className={[
+                  "relative inline-flex h-7 w-12 flex-none items-center rounded-full border transition-colors disabled:opacity-50",
+                  roomState?.game.lookingForPlayers
+                    ? "border-[rgba(70,236,19,0.6)] bg-[rgba(70,236,19,0.35)]"
+                    : "border-white/15 bg-white/10"
+                ].join(" ")}
+              >
+                <span
+                  className={[
+                    "inline-block h-5 w-5 transform rounded-full bg-white transition-transform",
+                    roomState?.game.lookingForPlayers ? "translate-x-6" : "translate-x-1"
+                  ].join(" ")}
+                />
+              </button>
+            </div>
+            {roomState?.game.lookingForPlayers ? (
+              <p className="mt-2 text-xs text-[var(--color-primary)]">
+                ✓ Listed publicly on Card Game Lobby
+              </p>
+            ) : null}
+          </section>
+
           <PendingList
             participants={pendingParticipants}
             actionKey={action}

@@ -6,6 +6,8 @@ export interface Env {
   APP_ORIGIN?: string;
   DB?: D1Database;
   GAME_ROOM: DurableObjectNamespace;
+  /** Shared secret for the Card Game Lobby platform API (push + Live feed). */
+  BROADCAST_SECRET?: string;
 }
 
 type CreateRoomPayload = {
@@ -68,6 +70,10 @@ type RoomRoute =
     }
   | {
       type: "remove";
+      roomCode: string;
+    }
+  | {
+      type: "looking";
       roomCode: string;
     };
 
@@ -210,6 +216,13 @@ export function parseRoomRoute(pathname: string): RoomRoute | null {
     };
   }
 
+  if (segments.length === 4 && segments[3] === "looking") {
+    return {
+      type: "looking",
+      roomCode
+    };
+  }
+
   return null;
 }
 
@@ -262,7 +275,8 @@ async function proxyJsonRequest(
     | "/discard"
     | "/cancel"
     | "/finish"
-    | "/remove",
+    | "/remove"
+    | "/looking",
   body?: unknown
 ): Promise<Response> {
   const init: RequestInit = {
@@ -558,6 +572,21 @@ export function createWorkerHandler() {
             participantId?: string;
           };
           const upstream = await proxyJsonRequest(stub, "POST", "/remove", payload);
+          return new Response(upstream.body, {
+            status: upstream.status,
+            headers: {
+              ...headers,
+              "Content-Type": "application/json"
+            }
+          });
+        }
+
+        if (roomRoute.type === "looking" && request.method === "POST") {
+          const payload = (await request.json().catch(() => ({}))) as {
+            hostToken?: string;
+            enabled?: boolean;
+          };
+          const upstream = await proxyJsonRequest(stub, "POST", "/looking", payload);
           return new Response(upstream.body, {
             status: upstream.status,
             headers: {

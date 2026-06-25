@@ -108,6 +108,12 @@ export interface GameState {
    * happen at this timestamp unless the host reconnects first.
    */
   pendingHostTransferAt: string | null;
+  /**
+   * Host opt-in: when true, this room is advertised on the Card Game Lobby
+   * platform (push + Live feed). Only togglable while in the LOBBY phase.
+   * Optional for back-compat with rooms persisted before this field existed.
+   */
+  lookingForPlayers?: boolean;
 }
 
 export interface StoredRoomState {
@@ -200,6 +206,7 @@ export interface RoomSnapshot {
     scoring: ScoringSummary;
     letterPickDeadline: string | null;
     pendingHostTransferAt: string | null;
+    lookingForPlayers: boolean;
   };
 }
 
@@ -299,6 +306,13 @@ export type DiscardRoundScoresResult = DiscardRoundScoresSuccess | RoomMutationF
 export type CancelGameResult = CancelGameSuccess | RoomMutationFailure;
 export type DraftUpdateResult = DraftUpdateSuccess | RoomMutationFailure;
 export type EndGameResult = EndGameSuccess | RoomMutationFailure;
+
+type SetLookingSuccess = {
+  ok: true;
+  nextState: StoredRoomState;
+};
+
+export type SetLookingResult = SetLookingSuccess | RoomMutationFailure;
 
 const ROOM_STORAGE_KEY = "room";
 const MIN_NAME_LENGTH = 2;
@@ -849,7 +863,8 @@ export function buildSnapshot(state: StoredRoomState): RoomSnapshot {
       completedRounds: state.game.completedRounds.map(toCompletedRoundSnapshot),
       scoring: buildScoringSummary(state),
       letterPickDeadline: state.game.letterPickDeadline ?? null,
-      pendingHostTransferAt: state.game.pendingHostTransferAt ?? null
+      pendingHostTransferAt: state.game.pendingHostTransferAt ?? null,
+      lookingForPlayers: state.game.lookingForPlayers ?? false
     }
   };
 }
@@ -889,7 +904,8 @@ export function initializeRoomState(payload: RoomInitPayload, nowIso = new Date(
       activeRound: null,
       completedRounds: [],
       letterPickDeadline: null,
-      pendingHostTransferAt: null
+      pendingHostTransferAt: null,
+      lookingForPlayers: false
     }
   };
 }
@@ -1189,7 +1205,8 @@ export function startGame(
         letterPickDeadline: configResult.config.letterPickSeconds
           ? new Date(new Date(nowIso).getTime() + configResult.config.letterPickSeconds * 1000).toISOString()
           : null,
-        pendingHostTransferAt: null
+        pendingHostTransferAt: null,
+        lookingForPlayers: false
       }
     }
   };
@@ -2007,7 +2024,8 @@ export function cancelGame(
         status: "CANCELLED",
         cancelledAt: nowIso,
         finishedAt: null,
-        activeRound: null
+        activeRound: null,
+        lookingForPlayers: false
       }
     }
   };
@@ -2101,11 +2119,48 @@ export function transferHost(
   };
 }
 
+/**
+ * Host opt-in toggle to advertise the room on the Card Game Lobby platform.
+ * Only valid while the room is still in the LOBBY phase.
+ */
+export function setLookingForPlayers(
+  state: StoredRoomState,
+  hostToken: string,
+  enabled: boolean
+): SetLookingResult {
+  if (!isHostTokenValid(state, hostToken)) {
+    return { ok: false, status: 401, error: "invalid host token" };
+  }
+
+  if (state.game.status !== "LOBBY") {
+    return { ok: false, status: 409, error: "can only change while the room is in the lobby" };
+  }
+
+  return {
+    ok: true,
+    nextState: {
+      ...state,
+      game: { ...state.game, lookingForPlayers: enabled }
+    }
+  };
+}
+
+/** Minimal env shape the room needs; the worker passes the full Env. */
+interface GameRoomEnv {
+  BROADCAST_SECRET?: string;
+}
+
+/** Slug the Card Game Lobby platform uses to identify this game. */
+const CARD_GAME_LOBBY_SLUG = "icallon";
+const CARD_GAME_LOBBY_API = "https://api.cardgamelobby.com";
+
 export class GameRoom implements DurableObject {
   private readonly state: DurableObjectState;
+  private readonly env: GameRoomEnv;
 
-  constructor(state: DurableObjectState, _env: unknown) {
+  constructor(state: DurableObjectState, env: GameRoomEnv) {
     this.state = state;
+    this.env = env;
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -2185,6 +2240,7 @@ export class GameRoom implements DurableObject {
       await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
       const snapshot = buildSnapshot(result.nextState);
       this.broadcast({ type: "admission_update", participant: result.participant, snapshot });
+      this.refreshLobbyIfLooking(result.nextState);
 
       return json(snapshot);
     }
@@ -2216,6 +2272,52 @@ export class GameRoom implements DurableObject {
       await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
       const snapshot = buildSnapshot(result.nextState);
       this.broadcast({ type: "participant_removed", participant: result.participant, snapshot });
+      this.refreshLobbyIfLooking(result.nextState);
+      return json(snapshot);
+    }
+
+    if (request.method === "POST" && url.pathname.endsWith("/looking")) {
+      const currentState = await this.readRoomState();
+      if (!currentState) {
+        return json({ error: "room not found" }, 404);
+      }
+
+      const payload = (await request.json().catch(() => ({}))) as {
+        hostToken?: string;
+        enabled?: boolean;
+      };
+
+      if (!payload.hostToken) {
+        return json({ error: "hostToken is required" }, 400);
+      }
+
+      if (typeof payload.enabled !== "boolean") {
+        return json({ error: "enabled must be a boolean" }, 400);
+      }
+
+      const wasLooking = currentState.game.lookingForPlayers ?? false;
+      const result = setLookingForPlayers(currentState, payload.hostToken, payload.enabled);
+      if (!result.ok) {
+        return json({ error: result.error }, result.status);
+      }
+
+      await this.state.storage.put(ROOM_STORAGE_KEY, result.nextState);
+      const snapshot = buildSnapshot(result.nextState);
+      this.broadcast({ type: "looking_updated", snapshot });
+
+      // Fire platform triggers only on an actual transition.
+      if (payload.enabled && !wasLooking) {
+        const body = this.lobbyBody(result.nextState);
+        this.background(
+          Promise.all([
+            this.callLobbyApi("/v1/push/broadcast", body),
+            this.callLobbyApi("/v1/lobbies", body)
+          ])
+        );
+      } else if (!payload.enabled && wasLooking) {
+        this.removeFromLobby(result.nextState);
+      }
+
       return json(snapshot);
     }
 
@@ -2248,6 +2350,9 @@ export class GameRoom implements DurableObject {
 
       const snapshot = buildSnapshot(result.nextState);
       this.broadcast({ type: "game_started", snapshot });
+      if (currentState.game.lookingForPlayers) {
+        this.removeFromLobby(currentState);
+      }
       return json(snapshot);
     }
 
@@ -2512,6 +2617,9 @@ export class GameRoom implements DurableObject {
       await this.state.storage.deleteAlarm();
       const snapshot = buildSnapshot(result.nextState);
       this.broadcast({ type: "game_cancelled", snapshot });
+      if (currentState.game.lookingForPlayers) {
+        this.removeFromLobby(currentState);
+      }
       return json(snapshot);
     }
 
@@ -2804,6 +2912,61 @@ export class GameRoom implements DurableObject {
 
     const snapshot = buildSnapshot(nextState);
     this.broadcast({ type: "host_transferred", snapshot });
+  }
+
+  // --- Card Game Lobby platform integration (best-effort, fire-and-forget) ---
+
+  /** Standard body for push/lobby calls — current seat (admitted) count. */
+  private lobbyBody(state: StoredRoomState): {
+    game: string;
+    roomCode: string;
+    hostName: string;
+    playerCount: number;
+  } {
+    return {
+      game: CARD_GAME_LOBBY_SLUG,
+      roomCode: state.meta.roomCode,
+      hostName: state.meta.hostName,
+      playerCount: countStatuses(state.participants).admitted
+    };
+  }
+
+  /** POST to the platform API. A missing secret or any failure is a silent no-op. */
+  private async callLobbyApi(path: string, body: unknown): Promise<void> {
+    const secret = this.env.BROADCAST_SECRET;
+    if (!secret) return;
+    try {
+      await fetch(`${CARD_GAME_LOBBY_API}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+        body: JSON.stringify(body)
+      });
+    } catch {
+      /* best-effort — never break the lobby */
+    }
+  }
+
+  /** Run platform calls without blocking the response; keep the DO alive until done. */
+  private background(promise: Promise<unknown>): void {
+    const safe = promise.catch(() => {});
+    const waitUntil = (this.state as { waitUntil?: (p: Promise<unknown>) => void }).waitUntil;
+    if (typeof waitUntil === "function") {
+      waitUntil.call(this.state, safe);
+    } else {
+      void safe;
+    }
+  }
+
+  /** Re-advertise the room when the seat count changes while looking & in lobby. */
+  private refreshLobbyIfLooking(state: StoredRoomState): void {
+    if (state.game.lookingForPlayers && state.game.status === "LOBBY") {
+      this.background(this.callLobbyApi("/v1/lobbies", this.lobbyBody(state)));
+    }
+  }
+
+  /** Pull the room from the Live feed (used on disable / start / cancel). */
+  private removeFromLobby(state: StoredRoomState): void {
+    this.background(this.callLobbyApi("/v1/lobbies/remove", { roomCode: state.meta.roomCode }));
   }
 
   private async readRoomState(): Promise<StoredRoomState | null> {

@@ -5,6 +5,7 @@ import {
   initializeRoomState,
   isHostTokenValid,
   resolveJoinRequest,
+  setLookingForPlayers,
   startGame,
   type Participant,
   type StoredRoomState
@@ -351,5 +352,54 @@ describe("unit: lobby state logic", () => {
       expect(joinAfterCancel.status).toBe(410);
       expect(joinAfterCancel.error).toContain("closed by the host");
     }
+  });
+
+  describe("setLookingForPlayers (Card Game Lobby opt-in)", () => {
+    const lobbyState = () =>
+      initializeRoomState(
+        { roomCode: "LOOK01", hostName: "Qudus", maxParticipants: 6, hostToken: "host-token" },
+        "2026-02-08T00:00:00.000Z"
+      );
+
+    it("defaults to not looking for players", () => {
+      expect(lobbyState().game.lookingForPlayers).toBe(false);
+    });
+
+    it("lets the host enable and disable while in the lobby", () => {
+      const enabled = setLookingForPlayers(lobbyState(), "host-token", true);
+      expect(enabled.ok).toBe(true);
+      if (!enabled.ok) return;
+      expect(enabled.nextState.game.lookingForPlayers).toBe(true);
+
+      const disabled = setLookingForPlayers(enabled.nextState, "host-token", false);
+      expect(disabled.ok).toBe(true);
+      if (!disabled.ok) return;
+      expect(disabled.nextState.game.lookingForPlayers).toBe(false);
+    });
+
+    it("rejects a bad host token", () => {
+      const result = setLookingForPlayers(lobbyState(), "wrong-token", true);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.status).toBe(401);
+    });
+
+    it("rejects toggling once the game has left the lobby", () => {
+      const withAda: StoredRoomState = {
+        ...lobbyState(),
+        participants: [
+          ...lobbyState().participants,
+          createParticipant({ id: "p-ada", name: "Ada", status: "ADMITTED" })
+        ]
+      };
+      const started = startGame(withAda, "host-token", { roundSeconds: 12 }, "2026-02-08T00:00:10.000Z");
+      expect(started.ok).toBe(true);
+      if (!started.ok) return;
+      // Starting the game clears the looking flag.
+      expect(started.nextState.game.lookingForPlayers).toBe(false);
+
+      const result = setLookingForPlayers(started.nextState, "host-token", true);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.status).toBe(409);
+    });
   });
 });

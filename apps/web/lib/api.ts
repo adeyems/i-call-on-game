@@ -131,6 +131,12 @@ export const api = {
       roundNumber
     }),
 
+  setLookingForPlayers: (roomCode: string, hostToken: string, enabled: boolean) =>
+    post<RoomStateResponse>(`/api/rooms/${roomCode.trim().toUpperCase()}/looking`, {
+      hostToken,
+      enabled
+    }),
+
   cancelGameRoom: (roomCode: string, hostToken: string) =>
     post<RoomStateResponse>(`/api/rooms/${roomCode.trim().toUpperCase()}/cancel`, { hostToken }),
 

@@ -23,6 +23,7 @@ describe("unit: room route parsing", () => {
     expect(parseRoomRoute("/api/rooms/room99/discard")).toEqual({ type: "discard", roomCode: "ROOM99" });
     expect(parseRoomRoute("/api/rooms/room99/cancel")).toEqual({ type: "cancel", roomCode: "ROOM99" });
     expect(parseRoomRoute("/api/rooms/room99/finish")).toEqual({ type: "finish", roomCode: "ROOM99" });
+    expect(parseRoomRoute("/api/rooms/room99/looking")).toEqual({ type: "looking", roomCode: "ROOM99" });
   });
 
   it("rejects unsupported routes", () => {
